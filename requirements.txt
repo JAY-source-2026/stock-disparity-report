@@ -1,0 +1,16 @@
+# 토스 API 클라이언트 / 공통 HTTP
+requests>=2.28
+python-dotenv>=1.0
+# 지수·환율 보완 + 임시 종목 소스 (스킬 17-2)
+finance-datareader>=0.9.50
+pandas>=1.5
+# KRX 확정 투자자별 수급 (data.krx.co.kr)
+pykrx>=1.0.45
+# 야후 실시간 오버나잇 웹소켓 스트리머
+websocket-client>=1.6
+# 대시보드
+flask>=2.2
+# 프로덕션 WSGI 서버 (24시간 운영용)
+gunicorn>=21.0
+# 테스트
+pytest>=7.0

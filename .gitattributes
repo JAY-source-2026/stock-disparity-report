@@ -1,0 +1,11 @@
+# 저장소에는 항상 LF로 저장 → 리눅스(배포 서버)에서 스크립트/코드가 깨지지 않게.
+* text=auto eol=lf
+
+# 바이너리(줄바꿈 변환 금지)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary

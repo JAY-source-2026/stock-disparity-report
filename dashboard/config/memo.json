@@ -1,0 +1,9 @@
+{
+  "title": "오늘 할 일 / 콕핏 메모",
+  "updated_at": "2026-08-07",
+  "items": [
+    { "text": "09:20 기준 보유 종목 이격도 확인", "done": false },
+    { "text": "리스크 구간(85 이하) 진입 종목 점검", "done": false },
+    { "text": "토스 API 키 발급 상태 확인", "done": false }
+  ]
+}

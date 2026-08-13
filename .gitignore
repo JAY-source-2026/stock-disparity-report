@@ -1,0 +1,14 @@
+# 시크릿 (스킬 6번) — 절대 커밋 금지
+.env
+*.token
+token_cache*.json
+
+# 파이썬
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# 이 PC 전용 설정 (머신마다 다름)
+.claude/settings.local.json
