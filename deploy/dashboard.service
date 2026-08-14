@@ -1,0 +1,17 @@
+[Unit]
+Description=원종명 부자되기 대시보드 (Flask + 야후 오버나잇 웹소켓)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/stock-disparity-report
+# 앱이 WorkingDirectory 의 .env 를 스스로 읽는다(python-dotenv). 웹소켓·캐시가
+# 메모리에 있으므로 워커는 반드시 1개(-w 1). 스레드로 동시 요청 처리.
+ExecStart=/home/ubuntu/stock-disparity-report/.venv/bin/gunicorn -w 1 --threads 8 --timeout 120 -b 0.0.0.0:8899 dashboard.app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

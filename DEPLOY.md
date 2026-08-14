@@ -29,6 +29,32 @@
 ### 접속/방화벽 메모
 - 오라클: VCN Security List 인그레스 80·443·8899 열기 + 인스턴스 내부 iptables/ufw도 열어야 함(우분투 이미지 기본 차단).
 
+### ⚡ 빠른 배포 (VM SSH 접속 후, 복붙)
+```bash
+# 1) 코드 받기
+git clone https://github.com/JAY-source-2026/stock-disparity-report.git
+cd stock-disparity-report
+
+# 2) 셋업(패키지·venv·의존성·스왑·방화벽 자동)
+bash deploy/setup.sh
+
+# 3) 시크릿 작성 (원본 PC .env 값 그대로)
+nano .env        # TOSS_CLIENT_ID / TOSS_CLIENT_SECRET / KRX_ID / KRX_PW
+
+# 4) 자동실행 등록
+sudo cp deploy/dashboard.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now dashboard
+
+# 5) 상태·로그 확인
+systemctl status dashboard --no-pager
+journalctl -u dashboard -f     # Ctrl+C 로 빠져나옴
+```
+접속: `http://<서버_공인IP>:8899`
+- 코드 업데이트 시: `git pull && sudo systemctl restart dashboard`
+- ⚠️ VCN Security List 인그레스(80·443·8899)도 콘솔에서 열려 있어야 외부 접속됨.
+- 이후 HTTPS 예쁜 주소: DuckDNS(무료 고정주소) + Caddy(자동 HTTPS, 8899로 리버스프록시).
+
 ## 최근 완료된 코드 변경(이 저장소 상태)
 - 매크로 박스: 원-달러 환율/원-엔 환율(100엔)/비트코인($) 추가.
 - 명일지표: 야후 웹소켓 실시간 오버나잇(🌙)/프리마켓(☀️) 자동 전환, 7초 폴링(`/api/after`). 부분 틱 병합 버그 수정.
