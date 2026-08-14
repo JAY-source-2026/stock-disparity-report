@@ -20,17 +20,35 @@ def krx_available() -> bool:
     return bool(os.environ.get("KRX_ID") and os.environ.get("KRX_PW"))
 
 
+# KRX 공용 백오프 — 실패(로그인 throttle 등) 시 15분간 KRX 재시도를 멈춰 회복을 유도.
+# 수급·ADR 등 모든 KRX 호출이 공유한다(안 그러면 서로 계속 두드려 차단이 안 풀림).
+_krx_fail_until = 0.0
+
+
+def _krx_cooldown() -> bool:
+    return time.time() < _krx_fail_until
+
+
+def _krx_note_fail(seconds: int = 900) -> None:
+    global _krx_fail_until
+    _krx_fail_until = time.time() + seconds
+
+
 def get_index_investor(market: str = "KOSPI", date: Optional[str] = None) -> Optional[dict]:
     """지수 투자자별 순매수(억원). {'individual','foreign','institution','source'} 또는 None.
 
-    market: 'KOSPI' | 'KOSDAQ'. date: 'YYYYMMDD' (기본=오늘).
+    market: 'KOSPI' | 'KOSDAQ'. date: 'YYYYMMDD' (기본=오늘). 실패 시 None(→네이버 폴백).
     """
-    if not krx_available():
+    if not krx_available() or _krx_cooldown():
         return None
-    from pykrx import stock
+    try:
+        from pykrx import stock
 
-    day = date or datetime.date.today().strftime("%Y%m%d")
-    df = stock.get_market_trading_value_by_investor(day, day, market)
+        day = date or datetime.date.today().strftime("%Y%m%d")
+        df = stock.get_market_trading_value_by_investor(day, day, market)
+    except Exception:
+        _krx_note_fail()          # 로그인 throttle 등 → 백오프
+        return None
     if df is None or df.empty or "순매수" not in df.columns:
         return None
 
@@ -65,7 +83,6 @@ _ADR_COUNTS_FILE = os.path.join(_ADR_DIR, "adr_counts.json")
 _ADR_RESULT_FILE = os.path.join(_ADR_DIR, "adr_result.json")
 _adr_counts = None        # {'YYYYMMDD': [up, down]}
 _adr_result_mem: dict = {}  # {'YYYY-MM-DD'(오늘): result}
-_adr_fail_until = 0.0     # KRX 실패 시 재시도 쿨다운(에포크초)
 
 
 def _adr_load_counts() -> dict:
@@ -118,14 +135,13 @@ def get_kospi_adr(today: Optional[datetime.date] = None, window: int = 20,
     날짜별 종목수를 디스크 캐시해 하루 1회만 신규 조회한다. KRX 실패 시엔
     마지막 성공값(파일)을 반환하고 15분 백오프해 KRX 재시도를 멈춘다(차단 회복 유도).
     """
-    global _adr_fail_until
     if not krx_available():
         return _adr_load_result()
     today = today or datetime.date.today()
     rkey = today.isoformat()
     if rkey in _adr_result_mem:
         return _adr_result_mem[rkey]
-    if time.time() < _adr_fail_until:      # 최근 실패 → KRX 그만 두드리고 마지막 값
+    if _krx_cooldown():                    # KRX 공용 백오프 중 → 마지막 값
         return _adr_load_result()
     try:
         from pykrx import stock
@@ -153,5 +169,5 @@ def get_kospi_adr(today: Optional[datetime.date] = None, window: int = 20,
         _adr_save(_ADR_RESULT_FILE, result)
         return result
     except Exception:
-        _adr_fail_until = time.time() + 900   # 15분 백오프
+        _krx_note_fail()                       # KRX 공용 15분 백오프
         return _adr_load_result()
