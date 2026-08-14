@@ -62,6 +62,8 @@ INDEX_SYMBOLS = [
     {"key": "SSEC", "label": "상해종합"},          # 중국
     {"key": "^STOXX50E", "label": "유로스톡스50"},  # 유럽
     {"key": "BTC/USD", "label": "비트코인($)"},     # 비트코인 (미국 달러)
+    {"key": "VIX", "label": "VIX(공포지수)"},        # 미국 변동성지수
+    {"key": "ADR", "label": "ADR(등락비율)", "source": "adr"},  # 코스피 등락비율 심리지표
 ]
 
 
@@ -270,6 +272,21 @@ def _build_index_or_naver(provider, symbol: dict, today: datetime.date) -> dict:
             if q:
                 row["value"] = q["value"]
                 row["change_pct"] = q["change_pct"]
+            else:
+                row["error"] = "no_data"
+        except Exception as exc:
+            row["error"] = str(exc)
+        return row
+    if symbol.get("source") == "adr":
+        row = {"key": symbol["key"], "label": symbol["label"], "value": None,
+               "change_pct": None, "spark": [], "error": None}
+        try:
+            from quant.data.krx import get_kospi_adr
+
+            q = get_kospi_adr(today)
+            if q and q.get("value") is not None:
+                row["value"] = q["value"]
+                row["change_pct"] = q.get("change_pct")
             else:
                 row["error"] = "no_data"
         except Exception as exc:
