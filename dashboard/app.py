@@ -78,42 +78,57 @@ def _get_listing(today) -> list:
     return rows or _listing_cache["rows"]
 
 
-_top_cache = {"date": None, "rows": []}  # 시총 상위 10 (하루 1회)
+_top_cache = {"date": None, "rows": {}}  # 시총 상위 (하루 1회, 시장별)
+_top_fail_until = 0.0  # 국내(KRX) 시총 조회 실패 시 재시도 쿨다운
 
 
 def _get_top_marcap(today, n: int = 100) -> dict:
-    """코스피/코스닥 각각 시가총액 상위 n종목. {'KOSPI':[...], 'KOSDAQ':[...]}"""
-    if _top_cache["date"] == today and _top_cache["rows"]:
-        return _top_cache["rows"]
+    """코스피/코스닥/미국 각각 시가총액 상위 n종목. {'KOSPI':[],'KOSDAQ':[],'US':[]}.
+
+    국내(KRX)와 미국(나스닥)을 독립 처리 — 한쪽 실패가 다른 쪽을 막지 않는다.
+    없는 시장만 매번 재시도하되, KRX 실패 시엔 15분 백오프(throttle 회복 유도).
+    """
+    global _top_fail_until
+    import time
 
     def _build(sub):
         sub = sub.sort_values("Marcap", ascending=False).head(n)
         out = []
         for i, (_, r) in enumerate(sub.iterrows()):
-            out.append(
-                {
-                    "rank": i + 1,
-                    "code": str(r.get("Code", "")),
-                    "name": str(r.get("Name", "")),
-                    "marcap": float(r.get("Marcap") or 0),
-                    "close": float(r.get("Close") or 0),
-                    "change": float(r.get("ChagesRatio") or 0),  # FDR 컬럼명 오타 그대로
-                }
-            )
+            out.append({
+                "rank": i + 1,
+                "code": str(r.get("Code", "")),
+                "name": str(r.get("Name", "")),
+                "marcap": float(r.get("Marcap") or 0),
+                "close": float(r.get("Close") or 0),
+                "change": float(r.get("ChagesRatio") or 0),  # FDR 컬럼명 오타 그대로
+            })
         return out
 
-    result = {"KOSPI": [], "KOSDAQ": [], "US": []}
-    try:
-        import FinanceDataReader as fdr
+    cache = _top_cache["rows"] if _top_cache["date"] == today else {}
+    result = {"KOSPI": cache.get("KOSPI", []), "KOSDAQ": cache.get("KOSDAQ", []),
+              "US": cache.get("US", [])}
 
-        df = fdr.StockListing("KRX").dropna(subset=["Marcap"])
-        market = df["Market"].astype(str)
-        result["KOSPI"] = _build(df[market == "KOSPI"])
-        result["KOSDAQ"] = _build(df[market.str.startswith("KOSDAQ")])
-        result["US"] = _us_top(n)
-    except Exception:
-        result = _top_cache["rows"] or result
-    if result["KOSPI"] or result["KOSDAQ"]:
+    # 국내(KRX) — 아직 없고 백오프 중 아니면 시도
+    if not (result["KOSPI"] and result["KOSDAQ"]) and time.time() >= _top_fail_until:
+        try:
+            import FinanceDataReader as fdr
+
+            df = fdr.StockListing("KRX").dropna(subset=["Marcap"])
+            market = df["Market"].astype(str)
+            result["KOSPI"] = _build(df[market == "KOSPI"])
+            result["KOSDAQ"] = _build(df[market.str.startswith("KOSDAQ")])
+        except Exception:
+            _top_fail_until = time.time() + 900  # 15분 백오프
+
+    # 미국(나스닥) — KRX와 독립. 아직 없으면 시도
+    if not result["US"]:
+        try:
+            result["US"] = _us_top(n)
+        except Exception:
+            pass
+
+    if result["KOSPI"] or result["KOSDAQ"] or result["US"]:
         _top_cache["date"] = today
         _top_cache["rows"] = result
     return result
