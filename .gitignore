@@ -12,3 +12,6 @@ venv/
 
 # 이 PC 전용 설정 (머신마다 다름)
 .claude/settings.local.json
+
+# 런타임 캐시 (ADR 등)
+.cache/

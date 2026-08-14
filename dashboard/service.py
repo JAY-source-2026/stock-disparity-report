@@ -287,10 +287,9 @@ def _build_index_or_naver(provider, symbol: dict, today: datetime.date) -> dict:
             if q and q.get("value") is not None:
                 row["value"] = q["value"]
                 row["change_pct"] = q.get("change_pct")
-            else:
-                row["error"] = "no_data"
-        except Exception as exc:
-            row["error"] = str(exc)
+            # 값 없으면(집계 전/KRX 일시장애) error 대신 값만 비워 "-"로 표시
+        except Exception:
+            pass
         return row
     return build_market_row(provider, symbol, today)
 
