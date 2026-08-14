@@ -183,8 +183,15 @@ def _get_fomc_events(today):
 
 
 # 명일 지표용 애프터마켓 ETF (야후) — 국장 다음날 예측용
-AFTER_ETFS = [("EWY", "한국 ETF(EWY)"), ("KORU", "한국 3배(KORU)"),
-              ("SOXX", "반도체(SOXX)"), ("SKHY", "SK하이닉스 ADR")]
+# (심볼, 라벨, 애프터마켓_소스심볼) — 소스가 None 이면 자기 자신에서 시간외를 읽는다.
+# ^SOX(필라델피아 반도체 지수)는 지수라 시간외 거래가 없어, 추종 ETF인 SOXX 의 시간외를 붙인다.
+AFTER_ETFS = [
+    ("EWY", "한국 ETF(EWY)", None),
+    ("KORU", "한국 3배(KORU)", None),
+    ("SOXX", "반도체(SOXX)", None),
+    ("SKHY", "SK하이닉스 ADR", None),
+    ("^SOX", "필라델피아 반도체(SOX)", "SOXX"),
+]
 _after_cache = {"at": None, "rows": []}
 
 
@@ -197,11 +204,14 @@ def _get_after_etfs(now):
         from quant.data.yahoo import get_quotes
         from quant.data import yahoo_stream
 
-        syms = [s for s, _ in AFTER_ETFS]
-        yahoo_stream.start(syms)          # 실시간 오버나잇 스트리머 (최초 1회 기동)
-        q = get_quotes(syms)
-        live = yahoo_stream.get_live(syms)  # 웹소켓 실시간(오버나잇 포함) 스냅샷
-        for sym, label in AFTER_ETFS:
+        # 값·등락용(행 심볼) + 애프터마켓 소스 심볼 모두 조회
+        all_syms = list(dict.fromkeys(
+            [s for s, _, _ in AFTER_ETFS] + [a for _, _, a in AFTER_ETFS if a]))
+        after_srcs = list(dict.fromkeys([(a or s) for s, _, a in AFTER_ETFS]))
+        yahoo_stream.start(after_srcs)      # 애프터 소스만 실시간 스트리밍
+        q = get_quotes(all_syms)
+        live = yahoo_stream.get_live(after_srcs)  # 웹소켓 실시간(오버나잇 포함)
+        for sym, label, after_sym in AFTER_ETFS:
             d = q.get(sym)
             price = d.get("price") if d else None
             reg_chg = d.get("change_pct") if d else None
@@ -209,19 +219,21 @@ def _get_after_etfs(now):
                 price = live[sym].get("price")
             if price is None:
                 continue
+            asrc = after_sym or sym            # 시간외를 읽어올 심볼
             after_pct, after_kind, src = None, "post", None
-            lv = live.get(sym)
+            lv = live.get(asrc)
             if lv and lv.get("is_after"):
                 # 야후 앱과 동일한 실시간 오버나잇/시간외 값
                 after_pct, after_kind, src = lv["chg_pct"], lv["kind"], "live"
-            elif d:
-                # 스트리머 값이 아직 없으면 REST 애프터/프리마켓으로 폴백
-                state = (d.get("market_state") or "").upper()
-                pre, post = d.get("pre_pct"), d.get("post_pct")
-                if state in ("PRE", "PREPRE") and pre is not None:
-                    after_pct, after_kind, src = pre, "pre", "rest"
-                elif post is not None:
-                    after_pct, after_kind, src = post, "post", "rest"
+            else:
+                dd = q.get(asrc)
+                if dd:                          # 스트리머 값 없으면 REST 애프터/프리로 폴백
+                    state = (dd.get("market_state") or "").upper()
+                    pre, post = dd.get("pre_pct"), dd.get("post_pct")
+                    if state in ("PRE", "PREPRE") and pre is not None:
+                        after_pct, after_kind, src = pre, "pre", "rest"
+                    elif post is not None:
+                        after_pct, after_kind, src = post, "post", "rest"
             rows.append({"key": sym, "label": label, "value": price,
                          "change_pct": reg_chg, "after_pct": after_pct,
                          "after_kind": after_kind, "after_src": src,
