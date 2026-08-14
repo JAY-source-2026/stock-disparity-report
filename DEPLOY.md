@@ -3,6 +3,16 @@
 > 이 문서는 다른 PC/새 세션에서 작업을 **끊김 없이 이어가기 위한** 노트다.
 > (원종명 부자되기 프로젝트 — 한국주식 퀀트 대시보드)
 
+## ✅ 현재 배포 상태 (2026-08-14 가동중)
+- **접속: http://161.33.185.120:8899** (오라클 도쿄 VM, 24시간, PC 꺼져도 접속)
+- VM: Ubuntu 22.04 / E2.1.Micro / systemd `dashboard`(gunicorn 1워커) / `/home/ubuntu/stock-disparity-report`
+- SSH: `ssh -i C:\claude\oracle\ssh-key-2026-08-14.key ubuntu@161.33.185.120`
+- 업데이트: `git pull && sudo systemctl restart dashboard` / 로그: `journalctl -u dashboard -f`
+
+> ⚠️ **토스 허용 IP** — 토스 Open API는 등록된 IP에서만 작동한다. 미등록시 토큰이 `403 "IP address not allowed"`.
+> 등록 위치: **토스증권 WTS(tossinvest.com) → 설정 > Open API > 하단 "허용 IP 관리"**. 서버 공인IP가 바뀌면 반드시 재등록.
+> ⚠️ **iptables** — 오라클 우분투는 기본 REJECT가 있어 setup.sh의 `-I INPUT 6` 삽입이 안 먹을 수 있다. 안 되면 `sudo iptables -I INPUT -p tcp --dport 8899 -j ACCEPT && sudo netfilter-persistent save`.
+
 ## 이 프로젝트가 뭔가
 - Flask 대시보드(`dashboard/app.py`, 포트 8899). 프런트는 단일 파일 `dashboard/static/index.html`.
 - 실행: `python -m dashboard.app`
