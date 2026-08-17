@@ -309,9 +309,8 @@
               <th>등락률</th>
               <th class="gl">일봉 20일이동평균선</th>
               <th>이격도</th>
-              <th>코멘트</th>
               <th class="gl">월봉 10일이동평균선</th>
-              <th>현재가 위치</th>
+              <th>이격도</th>
               <th class="gl">목표주가</th>
               <th>괴리율</th>
               <th></th>
@@ -334,9 +333,8 @@
               <th>등락률</th>
               <th class="gl">일봉 20일이동평균선</th>
               <th>이격도</th>
-              <th>코멘트</th>
               <th class="gl">월봉 10일이동평균선</th>
-              <th>현재가 위치</th>
+              <th>이격도</th>
               <th class="gl">목표주가</th>
               <th>괴리율</th>
               <th></th>
@@ -346,12 +344,12 @@
         </table>
       </div>
       <div class="legend">
-        <b>이격도</b> = 당일 현재가 ÷ 전일 기준 20일이동평균선 × 100. 판단 기준:
-        <span class="op risk">85 이하 · 급락/추세훼손 리스크 점검</span> ·
-        <span class="op buy">85~95 · 매수 관심</span> ·
-        <span class="op hold">95~110 · 보유</span> ·
-        <span class="op take-profit">110 이상 · 익절 검토</span>
-        <br>※ 20일이동평균선은 전일까지 확정된 최근 20거래일 종가 평균(당일 제외). 국장 관례상 상승=빨강, 하락=파랑.
+        <b>이격도</b> = 현재가가 20일이동평균선 대비 얼마나 떨어져 있는지(편차 %). 판단 기준:
+        <span class="op risk">-15% 이하 · 급락/추세훼손 리스크</span> ·
+        <span class="op buy">-15~-5% · 매수 관심</span> ·
+        <span class="op hold">-5~+10% · 보유</span> ·
+        <span class="op take-profit">+10% 이상 · 익절 검토</span>
+        <br>※ 20일이동평균선은 전일까지 확정된 최근 20거래일 종가 평균(당일 제외). 월봉 이격도는 월봉10이평 대비. 국장 관례상 상승=빨강, 하락=파랑.
       </div>
       <div class="notice" id="notice"></div>
     </div>
@@ -430,32 +428,35 @@ function chip(v){
   return `<span class="chip ${c}">${sign(v)}</span>`;
 }
 
-// 코멘트 셀: 이격도 숫자(이미 별도 컬럼) 없이, 컬러 판단 문구 + 20일선 대비 괴리
 function opinionShort(badge){
   return badge==="risk"?"급락":badge==="buy"?"매수 관심":badge==="hold"?"보유":"익절 검토";
 }
-function opinionHtml(r){
-  if(r.opinion && r.badge && r.disparity!=null){
-    const d = r.disparity - 100;
-    const s = (d>0?"+":"") + d.toFixed(1);
-    return `<span class="poslbl op-${r.badge}">${opinionShort(r.badge)}</span> <span class="sub">20일선 대비 ${s}%</span>`;
-  }
-  return r.comment || "-";  // 확정 종가 부족 등 예외 메시지
+// 이격도 편차(%)를 알약으로 — 부호(+/-)·소수1자리, 상승 빨강/하락 파랑
+function devPill(d){
+  if(d==null||isNaN(d)) return "";
+  const s = (d>0?"+":"") + d.toFixed(1) + "%";
+  return `<span class="chip ${cls(d)}">${s}</span>`;
+}
+// 일봉 이격도 셀: [20일선 대비 %] 알약 + [판단(보유/익절검토 등)] 알약
+function disparityCell(r){
+  if(r.disparity==null) return r.comment || "-";
+  const dev = devPill(r.disparity - 100);
+  const op = r.badge ? `<span class="poslbl op-${r.badge}">${opinionShort(r.badge)}</span>` : "";
+  return `${dev} ${op}`;
 }
 
-// 현재가 위치: 월봉10이평 대비 안정/검토/매도
+// 월봉10이평 대비 상태 알약: 안정/검토/매도
 function posLabel(p){
   if(!p) return "-";
   const c = p==="안정" ? "pos-safe" : (p==="검토" ? "pos-check" : "pos-sell");
   return `<span class="poslbl ${c}">${p}</span>`;
 }
-// 현재가 위치 셀: 알약 + 월봉10선 대비 % (20일선 코멘트와 동일 형식)
-function positionCell(r){
+// 월봉 이격도 셀: [월봉10선 대비 %] 알약 + [상태(안정/검토/매도)] 알약
+function monthlyDisparityCell(r){
   const pill = posLabel(r.price_position);
   if(r.price_position && r.monthly_ma10 && r.current_price!=null){
-    const d = (r.current_price / r.monthly_ma10 - 1) * 100;
-    const s = (d>0?"+":"") + d.toFixed(1);
-    return `${pill} <span class="sub">월봉10선 대비 ${s}%</span>`;
+    const dev = devPill((r.current_price / r.monthly_ma10 - 1) * 100);
+    return `${dev} ${pill}`;
   }
   return pill;
 }
@@ -504,19 +505,17 @@ function rowHtml(r){
   if(r.error && r.current_price==null){
     return `<tr class="row" draggable="true" data-code="${r.code}" data-name="${r.name}">
       <td class="l"><span class="drag">⠿</span><span class="name">${r.name}</span><span class="code">${r.code}</span></td>
-      <td colspan="9" class="err l">데이터 오류: ${r.error}</td>
+      <td colspan="8" class="err l">데이터 오류: ${r.error}</td>
       <td><button class="del" data-code="${r.code}" data-name="${r.name}" title="삭제">✕</button></td></tr>`;
   }
-  const badge = r.badge ? `<span class="badge ${r.badge}">${r.disparity!=null?r.disparity.toFixed(1):"-"}</span>` : "-";
   return `<tr class="row" draggable="true" data-code="${r.code}" data-name="${r.name}">
     <td class="l"><span class="drag">⠿</span><span class="name">${r.name}</span><span class="code">${r.code}</span></td>
     <td class="num gl">${curFmt(r.current_price, r.currency)}</td>
     <td>${chip(r.change_pct)}</td>
     <td class="num gl">${r.ma20!=null? curFmt(r.ma20, r.currency) : "-"}</td>
-    <td>${badge}</td>
-    <td class="comment">${opinionHtml(r)}</td>
+    <td class="comment">${disparityCell(r)}</td>
     <td class="num gl">${r.monthly_ma10!=null? curFmt(r.monthly_ma10, r.currency) : "-"}</td>
-    <td>${positionCell(r)}</td>
+    <td class="comment">${monthlyDisparityCell(r)}</td>
     <td class="num gl">${r.target_price!=null? curFmt(r.target_price, r.currency) : "-"}</td>
     <td>${r.target_ratio!=null? chip(r.target_ratio) : "-"}</td>
     <td><button class="del" data-code="${r.code}" data-name="${r.name}" title="삭제">✕</button></td>
@@ -702,8 +701,8 @@ setInterval(()=>{ if(!draggingNow) updateAfter(); }, 7000);
 function renderRisk(alerts){
   const el=document.getElementById("riskBanner");
   if(alerts && alerts.length){
-    const names=alerts.map(a=>`${a.name}(${a.disparity.toFixed(1)})`).join(", ");
-    el.innerHTML=`⚠ <b>리스크 구간 진입</b> — 이격도 85 이하: ${names}. 급락·추세훼손·리스크 점검.`;
+    const names=alerts.map(a=>`${a.name}(${(a.disparity-100>0?"+":"")+(a.disparity-100).toFixed(1)}%)`).join(", ");
+    el.innerHTML=`⚠ <b>리스크 구간 진입</b> — 이격도 -15% 이하: ${names}. 급락·추세훼손·리스크 점검.`;
     el.style.display="block";
   } else { el.style.display="none"; }
 }
