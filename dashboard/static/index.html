@@ -161,6 +161,8 @@
   ul.events li{border-bottom:0; min-width:220px;}
   /* 표 그룹 구분선 */
   table.holdings th.gl, table.holdings td.gl{ border-left:1px solid #313139; }
+  /* 이동평균선 컬럼: 폭 축소 + 숫자 가운데 정렬 */
+  table.holdings th.mac, table.holdings td.mac{ text-align:center; padding-left:5px; padding-right:5px; }
   /* 상세 모달: 탭 + 차트 */
   .modal.detail{max-width:900px;}
   .tabs{display:flex; gap:6px; margin:10px 0 12px;}
@@ -307,9 +309,9 @@
               <th class="l">종목</th>
               <th class="gl">현재가</th>
               <th>등락률</th>
-              <th class="gl">일봉 20일이동평균선</th>
+              <th class="gl mac">일봉20선</th>
               <th>이격도</th>
-              <th class="gl">월봉 10일이동평균선</th>
+              <th class="gl mac">월봉10선</th>
               <th>이격도</th>
               <th class="gl">목표주가</th>
               <th>괴리율</th>
@@ -331,9 +333,9 @@
               <th class="l">종목</th>
               <th class="gl">현재가</th>
               <th>등락률</th>
-              <th class="gl">일봉 20일이동평균선</th>
+              <th class="gl mac">일봉20선</th>
               <th>이격도</th>
-              <th class="gl">월봉 10일이동평균선</th>
+              <th class="gl mac">월봉10선</th>
               <th>이격도</th>
               <th class="gl">목표주가</th>
               <th>괴리율</th>
@@ -512,9 +514,9 @@ function rowHtml(r){
     <td class="l"><span class="drag">⠿</span><span class="name">${r.name}</span><span class="code">${r.code}</span></td>
     <td class="num gl">${curFmt(r.current_price, r.currency)}</td>
     <td>${chip(r.change_pct)}</td>
-    <td class="num gl">${r.ma20!=null? curFmt(r.ma20, r.currency) : "-"}</td>
+    <td class="num gl mac">${r.ma20!=null? curFmt(r.ma20, r.currency) : "-"}</td>
     <td class="comment">${disparityCell(r)}</td>
-    <td class="num gl">${r.monthly_ma10!=null? curFmt(r.monthly_ma10, r.currency) : "-"}</td>
+    <td class="num gl mac">${r.monthly_ma10!=null? curFmt(r.monthly_ma10, r.currency) : "-"}</td>
     <td class="comment">${monthlyDisparityCell(r)}</td>
     <td class="num gl">${r.target_price!=null? curFmt(r.target_price, r.currency) : "-"}</td>
     <td>${r.target_ratio!=null? chip(r.target_ratio) : "-"}</td>

@@ -118,6 +118,15 @@ def _require_ok(resp):
     return resp
 
 
+def _request_auth(method: str, url: str, now: Optional[datetime.datetime] = None, **kwargs):
+    """인증 요청 — 401(토큰 무효/만료) 시 토큰 재발급 후 1회 재시도(자가복구)."""
+    resp = request_with_retry(method, url, headers=_auth_headers(now), **kwargs)
+    if getattr(resp, "status_code", 200) == 401:
+        reset_token_cache()
+        resp = request_with_retry(method, url, headers=_auth_headers(now), **kwargs)
+    return resp
+
+
 # --------------------------------------------------------------------------- #
 # 응답 파서
 # --------------------------------------------------------------------------- #
@@ -162,10 +171,8 @@ def _parse_candles(payload) -> List[dict]:
 # 시세 조회 (kis.py 와 동일한 시그니처 스타일 — 스킬 5번)
 # --------------------------------------------------------------------------- #
 def get_current_price(code: str, now: Optional[datetime.datetime] = None) -> float:
-    resp = request_with_retry(
-        "GET",
-        BASE_URL + PRICE_PATH,
-        headers=_auth_headers(now),
+    resp = _request_auth(
+        "GET", BASE_URL + PRICE_PATH, now=now,
         params={PRICE_SYMBOLS_PARAM: code},
     )
     return _parse_price(_require_ok(resp).json(), symbol=code)
@@ -182,9 +189,7 @@ def _fetch_candles(
     }
     if count:
         params[CANDLE_COUNT_PARAM] = min(int(count), CANDLE_COUNT_MAX)
-    resp = request_with_retry(
-        "GET", BASE_URL + CANDLE_PATH, headers=_auth_headers(now), params=params
-    )
+    resp = _request_auth("GET", BASE_URL + CANDLE_PATH, now=now, params=params)
     return _parse_candles(_require_ok(resp).json())
 
 
