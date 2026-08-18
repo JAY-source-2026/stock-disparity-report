@@ -34,14 +34,14 @@ _ROOT = os.path.dirname(_HERE)
 # 국내 지수·환율(매크로 스트립, 스킬 17-2)과 하단 참고 지표(스킬 17번 하단 티커).
 # FinanceDataReader 심볼.
 MACRO_SYMBOLS = [
-    {"key": "KS11", "label": "KOSPI"},
-    {"key": "KQ11", "label": "KOSDAQ"},
+    {"key": "KS11", "label": "KOSPI", "yh": "^KS11"},
+    {"key": "KQ11", "label": "KOSDAQ", "yh": "^KQ11"},
 ]
 # 상단 3번째 박스: 미국 지수 3종
 US_INDEX_SYMBOLS = [
-    {"key": "US500", "label": "S&P500"},
-    {"key": "IXIC", "label": "나스닥"},
-    {"key": "DJI", "label": "다우"},
+    {"key": "US500", "label": "S&P500", "yh": "^GSPC"},
+    {"key": "IXIC", "label": "나스닥", "yh": "^IXIC"},
+    {"key": "DJI", "label": "다우", "yh": "^DJI"},
 ]
 # 명일 지표 박스: 국장 다음날 예측용 (코스피 + 미 선물=애프터마켓 반영)
 NEXTDAY_SYMBOLS = [
@@ -50,19 +50,20 @@ NEXTDAY_SYMBOLS = [
     {"key": "NQ=F", "label": "나스닥 선물"},
 ]
 # 리스크 배너 아래 지표 박스 (순서 고정)
+# yh = 야후 실시간 심볼(장중 반영). 없으면 FDR/naver 폴백. scale = 표시배수(원-엔 100엔).
 INDEX_SYMBOLS = [
-    {"key": "USD/KRW", "label": "원-달러 환율", "is_fx": True},
-    {"key": "JPY/KRW", "label": "원-엔 환율(100엔)", "is_fx": True, "scale": 100},
-    {"key": "DX-Y.NYB", "label": "달러인덱스"},
-    {"key": "CL=F", "label": "유가(WTI)"},
-    {"key": "GC=F", "label": "금"},
-    {"key": "^TNX", "label": "미10년물(%)"},
-    {"key": "N225", "label": "닛케이225"},        # 일본
-    {"key": "HSI", "label": "항셍"},              # 홍콩
-    {"key": "SSEC", "label": "상해종합"},          # 중국
-    {"key": "^STOXX50E", "label": "유로스톡스50"},  # 유럽
-    {"key": "BTC/USD", "label": "비트코인($)"},     # 비트코인 (미국 달러)
-    {"key": "VIX", "label": "VIX(공포지수)"},        # 미국 변동성지수
+    {"key": "USD/KRW", "label": "원-달러 환율", "is_fx": True, "yh": "KRW=X"},
+    {"key": "JPY/KRW", "label": "원-엔 환율(100엔)", "is_fx": True, "scale": 100, "yh": "JPYKRW=X"},
+    {"key": "DX-Y.NYB", "label": "달러인덱스", "yh": "DX-Y.NYB"},
+    {"key": "CL=F", "label": "유가(WTI)", "yh": "CL=F"},
+    {"key": "GC=F", "label": "금", "yh": "GC=F"},
+    {"key": "^TNX", "label": "미10년물(%)", "yh": "^TNX"},
+    {"key": "N225", "label": "닛케이225", "yh": "^N225"},        # 일본
+    {"key": "HSI", "label": "항셍", "yh": "^HSI"},              # 홍콩
+    {"key": "SSEC", "label": "상해종합", "yh": "000001.SS"},     # 중국
+    {"key": "^STOXX50E", "label": "유로스톡스50", "yh": "^STOXX50E"},  # 유럽
+    {"key": "BTC/USD", "label": "비트코인($)", "yh": "BTC-USD"},  # 비트코인 (미국 달러)
+    {"key": "VIX", "label": "VIX(공포지수)", "yh": "^VIX"},       # 미국 변동성지수
     {"key": "ADR", "label": "ADR(등락비율)", "source": "adr"},  # 코스피 등락비율 심리지표
 ]
 
@@ -294,6 +295,41 @@ def _build_index_or_naver(provider, symbol: dict, today: datetime.date) -> dict:
     return build_market_row(provider, symbol, today)
 
 
+def _all_yahoo_quotes() -> dict:
+    """매크로/지수 박스에 쓰는 모든 야후 심볼을 한 번에 조회(실시간)."""
+    syms = [s["yh"] for grp in (INDEX_SYMBOLS, MACRO_SYMBOLS, US_INDEX_SYMBOLS)
+            for s in grp if s.get("yh")]
+    try:
+        from quant.data.yahoo import get_quotes
+
+        return get_quotes(syms) or {}
+    except Exception:
+        return {}
+
+
+def _yahoo_or_fallback(provider, symbol: dict, today: datetime.date, yq: dict) -> dict:
+    """야후 실시간 우선(장중 반영), 없으면 FDR/naver/adr 폴백. (spark 없음)"""
+    q = yq.get(symbol.get("yh")) if symbol.get("yh") else None
+    if q and q.get("price") is not None:
+        return {
+            "key": symbol["key"], "label": symbol["label"],
+            "value": q["price"] * symbol.get("scale", 1),
+            "change_pct": q.get("change_pct"), "spark": [], "error": None,
+        }
+    return _build_index_or_naver(provider, symbol, today)
+
+
+def _live_row(provider, symbol: dict, today: datetime.date, yq: dict) -> dict:
+    """FDR로 spark(추세) 얻고, 값·등락률은 야후 실시간으로 덮어씀. (KOSPI/KOSDAQ 셀용)"""
+    row = build_market_row(provider, symbol, today)
+    q = yq.get(symbol.get("yh")) if symbol.get("yh") else None
+    if q and q.get("price") is not None:
+        row["value"] = q["price"] * symbol.get("scale", 1)
+        row["change_pct"] = q.get("change_pct")
+        row["error"] = None
+    return row
+
+
 # --------------------------------------------------------------------------- #
 # 전체 상태
 # --------------------------------------------------------------------------- #
@@ -361,6 +397,8 @@ def build_state(
         if r["disparity"] is not None and is_risk(r["disparity"])
     ]
 
+    yq = _all_yahoo_quotes()  # 매크로/지수 실시간(장중 반영) 배치 조회
+
     return {
         "generated_at": now_iso,
         "base_currency": base_currency,
@@ -371,9 +409,9 @@ def build_state(
             "pnl_pct": total_pnl_pct,
             "has_positions": bool(eval_rows),
         },
-        "macro": [build_market_row(macro_provider, s, today) for s in MACRO_SYMBOLS],
-        "us_index": [build_market_row(macro_provider, s, today) for s in US_INDEX_SYMBOLS],
-        "indices": [_build_index_or_naver(macro_provider, s, today) for s in INDEX_SYMBOLS],
+        "macro": [_live_row(macro_provider, s, today, yq) for s in MACRO_SYMBOLS],
+        "us_index": [_yahoo_or_fallback(macro_provider, s, today, yq) for s in US_INDEX_SYMBOLS],
+        "indices": [_yahoo_or_fallback(macro_provider, s, today, yq) for s in INDEX_SYMBOLS],
         "nextday": [_build_index_or_naver(macro_provider, s, today) for s in NEXTDAY_SYMBOLS],
         "events": merged_events(today),
         "memo": load_memo(),
