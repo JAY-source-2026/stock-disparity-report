@@ -214,6 +214,7 @@
     background:var(--card); border:1px solid var(--line); border-radius:var(--radius); font-size:13px;}
   .tboxlabel{font-size:12px; font-weight:700; color:#C7CDD6; white-space:nowrap;}
   .tboxlabel .hint{font-weight:400; color:var(--sub); font-size:11px; margin-left:4px;}
+  .upd{font-size:10px; font-weight:400; color:var(--sub); margin-left:6px; white-space:nowrap;}
   .ticker{display:flex; gap:18px; flex-wrap:wrap; font-size:13px;}
   .ticker .item{display:flex; align-items:center; gap:8px;}
   .ticker .item.clickable{cursor:pointer;}
@@ -274,19 +275,19 @@
   <div id="riskBanner"></div>
 
   <!-- 매크로 지표 박스 -->
-  <div class="tbox"><span class="tboxlabel">매크로</span><div class="ticker" id="indices"></div></div>
+  <div class="tbox"><span class="tboxlabel">매크로<span class="upd" id="updMacro"></span></span><div class="ticker" id="indices"></div></div>
 
   <!-- 명일 지표 (다음날 국장 예측용) -->
-  <div class="tbox"><span class="tboxlabel">명일 지표 <span class="hint">선물 = 미 애프터마켓 반영 · 클릭 시 차트</span></span><div class="ticker" id="nextday"></div></div>
+  <div class="tbox"><span class="tboxlabel">명일 지표 <span class="hint">선물 = 미 애프터마켓 반영 · 클릭 시 차트</span><span class="upd" id="updNextday"></span></span><div class="ticker" id="nextday"></div></div>
 
   <!-- 매크로 스트립 (17-2) -->
   <div class="macro-strip" id="macro"></div>
 
   <!-- 시가총액 상위 (코스피 / 코스닥) — 각 지수 그래프 밑에 세로 정렬 -->
   <div class="topgrid">
-    <div class="card"><h2 class="toph" onclick="openTopList('KOSPI','코스피')">코스피 시총 상위 10 <span class="more">▸ 100위까지</span></h2><div id="topKOSPI"></div></div>
-    <div class="card"><h2 class="toph" onclick="openTopList('KOSDAQ','코스닥')">코스닥 시총 상위 10 <span class="more">▸ 100위까지</span></h2><div id="topKOSDAQ"></div></div>
-    <div class="card"><h2 class="toph" onclick="openTopList('US','미국')">미국 시총 상위 10 <span class="more">▸ 100위까지</span></h2><div id="topUS"></div></div>
+    <div class="card"><h2 class="toph" onclick="openTopList('KOSPI','코스피')">코스피 시총 상위 10 <span class="more">▸ 100위까지</span><span class="upd" id="updTopKOSPI"></span></h2><div id="topKOSPI"></div></div>
+    <div class="card"><h2 class="toph" onclick="openTopList('KOSDAQ','코스닥')">코스닥 시총 상위 10 <span class="more">▸ 100위까지</span><span class="upd" id="updTopKOSDAQ"></span></h2><div id="topKOSDAQ"></div></div>
+    <div class="card"><h2 class="toph" onclick="openTopList('US','미국')">미국 시총 상위 10 <span class="more">▸ 100위까지</span><span class="upd" id="updTopUS"></span></h2><div id="topUS"></div></div>
   </div>
 
   <div>
@@ -1018,6 +1019,9 @@ function fmtAsOf(iso){
   const m=(iso||"").match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
   return m ? `${+m[2]}월 ${+m[3]}일 ${m[4]}:${m[5]} 기준` : "";
 }
+// 업데이트 시각 표기용 (HH:MM:SS)
+function hms(iso){ const m=(iso||"").match(/T(\d{2}):(\d{2}):(\d{2})/); return m?`${m[1]}:${m[2]}:${m[3]}`:""; }
+function setUpd(id, t){ const el=document.getElementById(id); if(el) el.textContent = t ? ("업데이트 "+t) : ""; }
 
 let refreshId=0;
 async function refresh(force){
@@ -1037,6 +1041,11 @@ async function refresh(force){
     renderEvents(s.events||[]);
     renderTicker("indices", s.indices||[]);
     renderTicker("nextday", s.nextday||[]);
+    // 각 표의 업데이트 시각 표기 (매크로·명일지표=상태 갱신시각, 시총=별도 주기)
+    const gt=hms(s.generated_at);
+    setUpd("updMacro", gt); setUpd("updNextday", gt);
+    const ta=s.top_marcap_at||{};
+    setUpd("updTopKOSPI", hms(ta.kr)); setUpd("updTopKOSDAQ", hms(ta.kr)); setUpd("updTopUS", hms(ta.us));
     document.getElementById("notice").textContent=s.notice||"";
   }catch(e){
     document.getElementById("clock").textContent="연결 오류: "+e;

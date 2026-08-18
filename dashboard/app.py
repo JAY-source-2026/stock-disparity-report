@@ -394,6 +394,10 @@ def get_state(force: bool = False) -> dict:
     )
     # 대시보드 카드는 상위 10만 (전체 100은 /api/top/<market>)
     state["top_marcap"] = {k: v[:10] for k, v in _get_top_marcap(now.date()).items()}
+    state["top_marcap_at"] = {  # 시총 데이터 갱신 시각(국내 3분/미국 30분 주기)
+        "kr": _top_cache["kr_at"].isoformat() if _top_cache["kr_at"] else None,
+        "us": _top_cache["us_at"].isoformat() if _top_cache["us_at"] else None,
+    }
     # 명일 지표에 애프터마켓 ETF(야후) 추가
     state["nextday"] = (state.get("nextday") or []) + _get_after_etfs(now)
     # 경제 일정: FOMC(연준 공식 파싱) + 동시만기(계산) + events.json(수동: CPI 등)
