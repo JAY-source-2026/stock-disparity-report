@@ -78,18 +78,20 @@ def _get_listing(today) -> list:
     return rows or _listing_cache["rows"]
 
 
-_top_cache = {"date": None, "rows": {}}  # 시총 상위 (하루 1회, 시장별)
+_top_cache = {"rows": {"KOSPI": [], "KOSDAQ": [], "US": []}, "kr_at": None, "us_at": None}
 _top_fail_until = 0.0  # 국내(KRX) 시총 조회 실패 시 재시도 쿨다운
 
 
 def _get_top_marcap(today, n: int = 100) -> dict:
-    """코스피/코스닥/미국 각각 시가총액 상위 n종목. {'KOSPI':[],'KOSDAQ':[],'US':[]}.
+    """코스피/코스닥/미국 시총 상위 n종목. {'KOSPI':[],'KOSDAQ':[],'US':[]}.
 
-    국내(KRX)와 미국(나스닥)을 독립 처리 — 한쪽 실패가 다른 쪽을 막지 않는다.
-    없는 시장만 매번 재시도하되, KRX 실패 시엔 15분 백오프(throttle 회복 유도).
+    국내(KRX)는 장중 3분 / 그 외 30분마다 갱신(시세 최신 반영). 미국(나스닥)은 30분.
+    국내·미국 독립 처리, KRX 실패 시 15분 백오프(throttle 회복 유도).
     """
     global _top_fail_until
     import time
+    now = datetime.datetime.now()
+    rows = _top_cache["rows"]
 
     def _build(sub):
         sub = sub.sort_values("Marcap", ascending=False).head(n)
@@ -105,33 +107,32 @@ def _get_top_marcap(today, n: int = 100) -> dict:
             })
         return out
 
-    cache = _top_cache["rows"] if _top_cache["date"] == today else {}
-    result = {"KOSPI": cache.get("KOSPI", []), "KOSDAQ": cache.get("KOSDAQ", []),
-              "US": cache.get("US", [])}
-
-    # 국내(KRX) — 아직 없고 백오프 중 아니면 시도
-    if not (result["KOSPI"] and result["KOSDAQ"]) and time.time() >= _top_fail_until:
+    # 국내(KRX): 장중 3분 / 그 외 30분 TTL, 백오프 존중
+    kr_at = _top_cache["kr_at"]
+    kr_ttl = 180 if _is_market_hours(now) else 1800
+    kr_stale = kr_at is None or (now - kr_at).total_seconds() > kr_ttl
+    if kr_stale and time.time() >= _top_fail_until:
         try:
             import FinanceDataReader as fdr
 
             df = fdr.StockListing("KRX").dropna(subset=["Marcap"])
             market = df["Market"].astype(str)
-            result["KOSPI"] = _build(df[market == "KOSPI"])
-            result["KOSDAQ"] = _build(df[market.str.startswith("KOSDAQ")])
+            rows["KOSPI"] = _build(df[market == "KOSPI"])
+            rows["KOSDAQ"] = _build(df[market.str.startswith("KOSDAQ")])
+            _top_cache["kr_at"] = now
         except Exception:
             _top_fail_until = time.time() + 900  # 15분 백오프
 
-    # 미국(나스닥) — KRX와 독립. 아직 없으면 시도
-    if not result["US"]:
+    # 미국(나스닥): 30분 TTL (KRX 무관)
+    us_at = _top_cache["us_at"]
+    if us_at is None or (now - us_at).total_seconds() > 1800:
         try:
-            result["US"] = _us_top(n)
+            rows["US"] = _us_top(n)
+            _top_cache["us_at"] = now
         except Exception:
             pass
 
-    if result["KOSPI"] or result["KOSDAQ"] or result["US"]:
-        _top_cache["date"] = today
-        _top_cache["rows"] = result
-    return result
+    return {k: list(v) for k, v in rows.items()}
 
 
 _NASDAQ_HEADERS = {
