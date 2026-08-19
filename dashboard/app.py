@@ -132,7 +132,23 @@ def _get_top_marcap(today, n: int = 100) -> dict:
         except Exception:
             pass
 
-    return {k: list(v) for k, v in rows.items()}
+    # 화면에 보이는 국내 상위 종목 현재가를 토스 실시간으로 통일(관심종목과 동일 소스).
+    # 캐시(rows)는 FDR 그대로 두고 복사본만 덮어써 매 호출(30초)마다 최신가 반영.
+    result = {k: [dict(r) for r in v] for k, v in rows.items()}
+    try:
+        from quant.data.toss import get_current_prices
+
+        top = result["KOSPI"][:10] + result["KOSDAQ"][:10]
+        codes = [r["code"] for r in top if str(r.get("code", "")).isdigit()]
+        prices = get_current_prices(codes) if codes else {}
+        for r in top:
+            p = prices.get(r["code"])
+            if p and r.get("close"):
+                r["marcap"] = r["marcap"] * p / r["close"]  # 시총도 새 현재가에 맞춰 보정
+                r["close"] = p
+    except Exception:
+        pass
+    return result
 
 
 _NASDAQ_HEADERS = {
@@ -445,20 +461,27 @@ def api_after():
 
 
 _stock_inv_cache = {}  # code -> (at, data)   종목별 투자자 수급 60초 캐시
+# 지수/선물 클릭 시엔 해당 시장의 투자자 수급(현물 기준)을 보여준다.
+_INDEX_INV = {"FUT": "KOSPI", "KS11": "KOSPI", "KPI200": "KOSPI", "KQ11": "KOSDAQ"}
 
 
 @app.route("/api/investor/<code>")
 def api_investor(code: str):
-    """개별 종목 투자자별 순매수(개인/기관/외국인). 국내 종목만. KRX 장애 시 {}."""
+    """투자자별 순매수(개인/기관/외국인). 개별 종목(국내) 또는 지수/선물(현물 기준). KRX 장애 시 {}."""
     now = datetime.datetime.now()
     hit = _stock_inv_cache.get(code)
     if hit and (now - hit[0]).total_seconds() < 60:
         return jsonify(hit[1] or {})
     data = None
     try:
-        from quant.data.krx import get_stock_investor
+        from quant.data.krx import get_stock_investor, get_index_investor
 
-        data = get_stock_investor(code)
+        if code in _INDEX_INV:
+            data = get_index_investor(_INDEX_INV[code])
+            if data:
+                data["spot"] = True  # 현물 기준 표시용
+        else:
+            data = get_stock_investor(code)
     except Exception:
         data = None
     _stock_inv_cache[code] = (now, data)

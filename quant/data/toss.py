@@ -178,6 +178,30 @@ def get_current_price(code: str, now: Optional[datetime.datetime] = None) -> flo
     return _parse_price(_require_ok(resp).json(), symbol=code)
 
 
+def get_current_prices(codes, now: Optional[datetime.datetime] = None) -> dict:
+    """여러 종목 현재가를 한 번에 조회. {code: lastPrice(float)}. 실패 시 빈 dict."""
+    codes = [str(c) for c in codes if c]
+    if not codes:
+        return {}
+    resp = _request_auth(
+        "GET", BASE_URL + PRICE_PATH, now=now,
+        params={PRICE_SYMBOLS_PARAM: ",".join(codes)},
+    )
+    if getattr(resp, "status_code", 200) != 200:
+        return {}
+    payload = resp.json()
+    res = payload.get("result", payload) if isinstance(payload, dict) else payload
+    out = {}
+    for it in (res if isinstance(res, list) else []):
+        lp = it.get("lastPrice") if isinstance(it, dict) else None
+        if lp is not None:
+            try:
+                out[str(it.get("symbol"))] = float(lp)
+            except Exception:
+                pass
+    return out
+
+
 def _fetch_candles(
     code: str,
     now: Optional[datetime.datetime] = None,

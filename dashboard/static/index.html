@@ -745,15 +745,16 @@ async function openDetail(code, name){
 
 function chartMsg(msg){ document.getElementById("chartBox").innerHTML=`<div class="sub" style="padding:24px">${msg}</div>`; }
 
-// 종목별 투자자 수급(개인/기관/외국인 순매수) — 국내 6자리 종목만
+// 투자자 수급(개인/기관/외국인 순매수) — 국내 6자리 종목 + 코스피200 선물/지수(현물 기준)
 function loadInvestor(code){
   const el=document.getElementById("dInvestor");
   el.innerHTML="";
-  if(!/^\d{6}$/.test(code)) return;
+  if(!/^\d{6}$/.test(code) && !["FUT","KS11","KQ11","KPI200"].includes(code)) return;
   fetch("/api/investor/"+code).then(r=>r.json()).then(inv=>{
     if(inv && inv.individual!=null){
       const dt = inv.date ? ` (${+inv.date.slice(4,6)}/${+inv.date.slice(6,8)})` : "";
-      el.innerHTML = `<span class="dinvlbl">투자자 순매수${dt}</span>` + investorRow(inv);
+      const lbl = inv.spot ? "투자자 순매수 (현물 기준)" : ("투자자 순매수"+dt);
+      el.innerHTML = `<span class="dinvlbl">${lbl}</span>` + investorRow(inv);
     }
   }).catch(()=>{});
 }
