@@ -461,8 +461,8 @@ def api_after():
 
 
 _stock_inv_cache = {}  # code -> (at, data)   종목별 투자자 수급 60초 캐시
-# 지수/선물 클릭 시엔 해당 시장의 투자자 수급(현물 기준)을 보여준다.
-_INDEX_INV = {"FUT": "KOSPI", "KS11": "KOSPI", "KPI200": "KOSPI", "KQ11": "KOSDAQ"}
+# 지수 클릭 시 해당 시장 투자자 수급(현물). 선물(FUT)은 전용 수급 데이터가 없어 제외.
+_INDEX_INV = {"KS11": "KOSPI", "KPI200": "KOSPI", "KQ11": "KOSDAQ"}
 
 
 @app.route("/api/investor/<code>")

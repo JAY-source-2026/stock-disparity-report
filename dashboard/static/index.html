@@ -749,7 +749,7 @@ function chartMsg(msg){ document.getElementById("chartBox").innerHTML=`<div clas
 function loadInvestor(code){
   const el=document.getElementById("dInvestor");
   el.innerHTML="";
-  if(!/^\d{6}$/.test(code) && !["FUT","KS11","KQ11","KPI200"].includes(code)) return;
+  if(!/^\d{6}$/.test(code) && !["KS11","KQ11","KPI200"].includes(code)) return;
   fetch("/api/investor/"+code).then(r=>r.json()).then(inv=>{
     if(inv && inv.individual!=null){
       const dt = inv.date ? ` (${+inv.date.slice(4,6)}/${+inv.date.slice(6,8)})` : "";
