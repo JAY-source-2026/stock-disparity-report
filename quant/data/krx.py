@@ -75,7 +75,8 @@ def get_index_investor(market: str = "KOSPI", date: Optional[str] = None) -> Opt
 def get_stock_investor(code: str, date: Optional[str] = None) -> Optional[dict]:
     """개별 종목 투자자별 순매수(억원). {'individual','foreign','institution','source','date'} 또는 None.
 
-    국내 6자리 종목코드만. 지수 수급(get_index_investor)과 동일 형식.
+    국내 6자리 종목코드만. 오늘치가 전부 0(장 초반/개장 전)이면 직전 거래일로 대체.
+    지수 수급(get_index_investor)과 동일 형식.
     """
     if not krx_available() or _krx_cooldown():
         return None
@@ -84,33 +85,35 @@ def get_stock_investor(code: str, date: Optional[str] = None) -> Optional[dict]:
     try:
         from pykrx import stock
 
-        day = date or datetime.date.today().strftime("%Y%m%d")
-        df = stock.get_market_trading_value_by_investor(day, day, code)
+        base = (datetime.datetime.strptime(date, "%Y%m%d").date()
+                if date else datetime.date.today())
+        for back in range(5):  # 오늘 → 최근 거래일(주말/휴일·전부0 건너뜀)
+            day = (base - datetime.timedelta(days=back)).strftime("%Y%m%d")
+            df = stock.get_market_trading_value_by_investor(day, day, code)
+            if df is None or df.empty or "순매수" not in df.columns:
+                continue
+
+            def _val(*names):
+                for n in names:
+                    if n in df.index:
+                        try:
+                            return round(float(df.loc[n, "순매수"]) / 1e8)  # 원 → 억
+                        except Exception:
+                            pass
+                return None
+
+            ind = _val("개인")
+            if ind is None:
+                continue
+            foreign, inst = _val("외국인", "외국인합계"), _val("기관합계", "기관")
+            if back < 4 and ind == 0 and (foreign or 0) == 0 and (inst or 0) == 0:
+                continue  # 아직 거래 없음 → 직전 거래일
+            return {"individual": ind, "foreign": foreign, "institution": inst,
+                    "source": "KRX", "date": day}
     except Exception:
         _krx_note_fail()
         return None
-    if df is None or df.empty or "순매수" not in df.columns:
-        return None
-
-    def _val(*names):
-        for n in names:
-            if n in df.index:
-                try:
-                    return round(float(df.loc[n, "순매수"]) / 1e8)  # 원 → 억
-                except Exception:
-                    pass
-        return None
-
-    ind = _val("개인")
-    if ind is None:
-        return None
-    return {
-        "individual": ind,
-        "foreign": _val("외국인", "외국인합계"),
-        "institution": _val("기관합계", "기관"),
-        "source": "KRX",
-        "date": day,
-    }
+    return None
 
 
 # --------------------------------------------------------------------------- #
