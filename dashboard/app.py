@@ -582,7 +582,7 @@ _ohlcv_cache = {}  # code -> (datetime, payload). 차트 반복 오픈 시 재�
 _INDEX_CODES = {
     "KS11", "KQ11", "US500", "IXIC", "DJI", "N225", "HSI", "SSEC", "^STOXX50E",
     "^GDAXI", "FUT", "KS200", "^SOX", "DX-Y.NYB", "^TNX", "ES=F", "CL=F", "GC=F",
-    "USD/KRW",
+    "USD/KRW", "VIX", "ADR",  # 포인트 지표(달러 아님)
 }
 
 
@@ -638,7 +638,22 @@ def api_ohlcv(code: str):
     code = code.replace("~", "/")  # URL 안전용 치환 복원 (예: USD~KRW → USD/KRW)
     currency = _currency_of(code)
     try:
-        if code == "FUT":
+        if code == "ADR":
+            # ADR(등락비율)은 FDR에 없음 — 상승/하락 종목수로 20일 ADR 시계열 계산.
+            # 라인처럼 보이게 open=전일ADR, close=당일ADR 로 캔들 구성.
+            from quant.data.krx import get_adr_history
+
+            hist = get_adr_history(now.date(), points=20)
+            candles, prev = [], None
+            for h in hist:
+                a = h["adr"]
+                o = prev if prev is not None else a
+                candles.append({"time": h["date"], "open": o, "high": max(o, a),
+                                "low": min(o, a), "close": a, "volume": 0})
+                prev = a
+            if not candles:
+                return jsonify({"error": "ADR 집계 준비중 — 잠시 후 다시", "code": code}), 200
+        elif code == "FUT":
             # KOSPI200 선물은 FDR에 없어 네이버 siseJson(연속 선물 15년)에서 조회
             from quant.data.naver import get_ohlcv_naver
 

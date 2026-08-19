@@ -215,3 +215,39 @@ def get_kospi_adr(today: Optional[datetime.date] = None, window: int = 20,
     except Exception:
         _krx_note_fail()                       # KRX 공용 15분 백오프
         return _adr_load_result()
+
+
+def get_adr_history(today: Optional[datetime.date] = None, points: int = 20,
+                    window: int = 20, market: str = "KOSPI") -> list:
+    """최근 points 거래일의 20일 ADR(등락비율) 시계열. [{'date','adr'}] (오래된→최신) 또는 []."""
+    if not krx_available() or _krx_cooldown():
+        return []
+    today = today or datetime.date.today()
+    try:
+        from pykrx import stock
+
+        need = points + window
+        start = (today - datetime.timedelta(days=need * 2 + 20)).strftime("%Y%m%d")
+        idx = stock.get_index_ohlcv(start, today.strftime("%Y%m%d"), "1001")
+        days = [d.strftime("%Y%m%d") for d in idx.index][-need:]
+        if len(days) < window + 1:
+            return []
+        cnt = []  # (day, up, down) — 디스크 캐시 재사용
+        for d in days:
+            try:
+                u, dn = _adr_daily_counts(d, market)
+                cnt.append((d, u, dn))
+            except Exception:
+                pass
+        out = []
+        for i in range(window - 1, len(cnt)):
+            wnd = cnt[i - window + 1:i + 1]
+            up = sum(c[1] for c in wnd)
+            dn = sum(c[2] for c in wnd)
+            if dn:
+                d = cnt[i][0]
+                out.append({"date": f"{d[:4]}-{d[4:6]}-{d[6:8]}", "adr": round(up / dn * 100, 1)})
+        return out
+    except Exception:
+        _krx_note_fail()
+        return []
