@@ -29,7 +29,8 @@
   a{color:var(--blue); text-decoration:none;}
 
   .wrap{max-width:1440px; margin:0 auto; padding:16px;}
-  header.top{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:12px;}
+  header.top{display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; gap:12px; flex-wrap:wrap;}
+  .hdr-right{display:flex; align-items:center; gap:12px; margin-left:auto;}
   header.top h1{font-size:18px; font-weight:700; margin:0; letter-spacing:-0.2px;}
   header.top .clock{font-size:12px; color:var(--sub);}
 
@@ -262,7 +263,11 @@
 <div class="wrap">
   <header class="top">
     <h1>Jay's rich project <span class="muted" id="src"></span></h1>
-    <div class="clock" id="clock">—</div>
+    <div class="hdr-right">
+      <button id="refreshBtn" class="rbtn" onclick="manualRefresh()">↻ 현재가 새로고침</button>
+      <span id="asOf" class="asof"></span>
+      <div class="clock" id="clock">—</div>
+    </div>
   </header>
 
   <!-- 연도별 목표 자산 -->
@@ -303,10 +308,6 @@
         <input id="stockSearch" type="text" autocomplete="off"
                placeholder="종목명으로 검색해서 추가 (예: 삼성전자)">
         <div id="searchResults" class="results"></div>
-      </div>
-      <div class="tbar">
-        <button id="refreshBtn" class="rbtn" onclick="manualRefresh()">↻ 현재가 새로고침</button>
-        <span id="asOf" class="asof"></span>
       </div>
       <div style="overflow-x:auto;">
         <table class="holdings">
@@ -705,7 +706,6 @@ async function updateAfter(){
     });
   }catch(e){}
 }
-setInterval(()=>{ if(!draggingNow) updateAfter(); }, 7000);
 
 function renderRisk(alerts){
   const el=document.getElementById("riskBanner");
@@ -1081,13 +1081,7 @@ async function manualRefresh(){
   b.textContent=label; b.disabled=false;
 }
 
-refresh();
-// 장중 30초 폴링. 단, 드래그 중이거나 드래그 직후 5초 동안은 일시정지(드래그 방해 방지).
-setInterval(()=>{
-  if(draggingNow) return;
-  if(Date.now() - lastDragAt < 5000) return;
-  refresh();
-}, 30000);
+refresh();  // 최초 1회 로드. 이후 갱신은 상단 '현재가 새로고침' 버튼으로만(전 지표 동시).
 </script>
 </body>
 </html>
