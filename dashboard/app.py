@@ -401,11 +401,11 @@ def _get_consensus(holdings: dict, today) -> dict:
 
 
 def _is_market_hours(now: datetime.datetime) -> bool:
-    # 한국장 대략 09:00~15:40, 평일. (KST 기준으로 서버가 돈다고 가정)
+    # 한국장 + 넥스트레이드(NXT) 시간외까지 08:00~20:00, 평일. (KST 기준)
     if now.weekday() >= 5:
         return False
     t = now.time()
-    return datetime.time(9, 0) <= t <= datetime.time(15, 40)
+    return datetime.time(8, 0) <= t <= datetime.time(20, 0)
 
 
 def _ttl_seconds(now: datetime.datetime) -> int:

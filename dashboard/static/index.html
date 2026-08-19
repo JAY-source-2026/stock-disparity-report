@@ -1048,7 +1048,7 @@ let refreshId=0;
 async function refresh(force){
   const myId=++refreshId;
   try{
-    const res=await fetch("/api/state"+(force?"?force=1":""));
+    const res=await fetch("/api/state?_="+Date.now()+(force?"&force=1":""), {cache:"no-store"});
     const s=await res.json();
     if(myId!==refreshId) return;  // 더 최신 갱신/드래그가 있었으면 늦게 온 이 결과는 버림
     const stamp=fmtAsOf(s.generated_at);
