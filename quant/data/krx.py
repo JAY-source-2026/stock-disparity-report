@@ -72,6 +72,47 @@ def get_index_investor(market: str = "KOSPI", date: Optional[str] = None) -> Opt
     }
 
 
+def get_stock_investor(code: str, date: Optional[str] = None) -> Optional[dict]:
+    """개별 종목 투자자별 순매수(억원). {'individual','foreign','institution','source','date'} 또는 None.
+
+    국내 6자리 종목코드만. 지수 수급(get_index_investor)과 동일 형식.
+    """
+    if not krx_available() or _krx_cooldown():
+        return None
+    if not (code and code.isdigit() and len(code) == 6):
+        return None  # 국내 종목만
+    try:
+        from pykrx import stock
+
+        day = date or datetime.date.today().strftime("%Y%m%d")
+        df = stock.get_market_trading_value_by_investor(day, day, code)
+    except Exception:
+        _krx_note_fail()
+        return None
+    if df is None or df.empty or "순매수" not in df.columns:
+        return None
+
+    def _val(*names):
+        for n in names:
+            if n in df.index:
+                try:
+                    return round(float(df.loc[n, "순매수"]) / 1e8)  # 원 → 억
+                except Exception:
+                    pass
+        return None
+
+    ind = _val("개인")
+    if ind is None:
+        return None
+    return {
+        "individual": ind,
+        "foreign": _val("외국인", "외국인합계"),
+        "institution": _val("기관합계", "기관"),
+        "source": "KRX",
+        "date": day,
+    }
+
+
 # --------------------------------------------------------------------------- #
 # ADR (등락비율) — 최근 window 거래일 상승/하락 종목수로 계산하는 시장 심리지표.
 # ADR = (기간 상승종목수 합 / 기간 하락종목수 합) × 100. 120↑ 과매수, 75↓ 과매도.

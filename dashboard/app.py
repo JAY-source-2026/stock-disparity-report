@@ -444,6 +444,27 @@ def api_after():
     return jsonify(_get_after_etfs(datetime.datetime.now()))
 
 
+_stock_inv_cache = {}  # code -> (at, data)   종목별 투자자 수급 60초 캐시
+
+
+@app.route("/api/investor/<code>")
+def api_investor(code: str):
+    """개별 종목 투자자별 순매수(개인/기관/외국인). 국내 종목만. KRX 장애 시 {}."""
+    now = datetime.datetime.now()
+    hit = _stock_inv_cache.get(code)
+    if hit and (now - hit[0]).total_seconds() < 60:
+        return jsonify(hit[1] or {})
+    data = None
+    try:
+        from quant.data.krx import get_stock_investor
+
+        data = get_stock_investor(code)
+    except Exception:
+        data = None
+    _stock_inv_cache[code] = (now, data)
+    return jsonify(data or {})
+
+
 @app.route("/api/top/<market>")
 def api_top(market: str):
     data = _get_top_marcap(datetime.datetime.now().date())

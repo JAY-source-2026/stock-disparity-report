@@ -156,6 +156,11 @@
   .invrow{display:flex; gap:10px; margin-top:6px; font-size:11px; color:var(--sub); border-top:1px solid var(--line); padding-top:6px;}
   .invrow b{font-weight:700;}
   .invrow b.up{color:var(--up);} .invrow b.down{color:var(--down);} .invrow b.flat{color:var(--sub);}
+  /* 상세 모달 투자자 수급 */
+  .dinv{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:4px 0 8px; font-size:12px; color:var(--sub);}
+  .dinv:empty{display:none;}
+  .dinv .dinvlbl{font-weight:700; color:#C7CDD6;}
+  .dinv .invrow{margin-top:0; border-top:0; padding-top:0; font-size:12px;}
   /* 다가오는 일정 — 전체폭에서 가로 배치 */
   ul.events{display:flex; flex-wrap:wrap; gap:8px 22px;}
   ul.events li{border-bottom:0; min-width:220px;}
@@ -378,6 +383,7 @@
   <div class="modal detail">
     <span class="close" onclick="closeDetail()">×</span>
     <h3 id="dTitle">—</h3>
+    <div id="dInvestor" class="dinv"></div>
     <div class="tabs">
       <button class="tab active" data-tab="chart" onclick="switchTab('chart')">차트</button>
       <button class="tab" data-tab="card" onclick="switchTab('card')">기업 해독 카드</button>
@@ -721,6 +727,7 @@ async function openDetail(code, name){
   curCode=code; curTf="D";
   document.getElementById("dTitle").innerHTML=`${name} <span class="code">${code}</span>`;
   document.getElementById("modalBg").style.display="block";
+  loadInvestor(code);   // 종목별 투자자 수급 (국내 종목)
   switchTab("chart");
   chartMsg("차트 불러오는 중…");
   try{
@@ -737,6 +744,19 @@ async function openDetail(code, name){
 }
 
 function chartMsg(msg){ document.getElementById("chartBox").innerHTML=`<div class="sub" style="padding:24px">${msg}</div>`; }
+
+// 종목별 투자자 수급(개인/기관/외국인 순매수) — 국내 6자리 종목만
+function loadInvestor(code){
+  const el=document.getElementById("dInvestor");
+  el.innerHTML="";
+  if(!/^\d{6}$/.test(code)) return;
+  fetch("/api/investor/"+code).then(r=>r.json()).then(inv=>{
+    if(inv && inv.individual!=null){
+      const dt = inv.date ? ` (${+inv.date.slice(4,6)}/${+inv.date.slice(6,8)})` : "";
+      el.innerHTML = `<span class="dinvlbl">투자자 순매수${dt}</span>` + investorRow(inv);
+    }
+  }).catch(()=>{});
+}
 
 function fmtValue(v){
   v=Number(v)||0;
