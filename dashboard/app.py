@@ -132,7 +132,7 @@ def _get_top_marcap(today, n: int = 100) -> dict:
         except Exception:
             pass
 
-    # 화면에 보이는 국내 상위 종목 현재가를 토스 실시간으로 통일(관심종목과 동일 소스).
+    # 화면에 보이는 국내 상위 종목 현재가·등락률을 토스로 통일(관심종목과 동일 소스).
     # 캐시(rows)는 FDR 그대로 두고 복사본만 덮어써 매 호출(30초)마다 최신가 반영.
     result = {k: [dict(r) for r in v] for k, v in rows.items()}
     try:
@@ -141,20 +141,44 @@ def _get_top_marcap(today, n: int = 100) -> dict:
         top = result["KOSPI"][:10] + result["KOSDAQ"][:10]
         codes = [r["code"] for r in top if str(r.get("code", "")).isdigit()]
         prices = get_current_prices(codes) if codes else {}
+        prevs = _toss_prev_closes(codes, today) if codes else {}
         for r in top:
             p = prices.get(r["code"])
             fc = r.get("close")
             if p and fc:
-                # 전일 종가 = FDR close/(1+change%) (하루 안 변함) → 토스가로 등락률 즉석 계산
-                denom = 1 + (r.get("change") or 0) / 100.0
-                prev = fc / denom if denom else None
+                prev = prevs.get(r["code"])
+                if not (prev and prev > 0):  # 토스 전일종가 없으면 FDR 역산 폴백
+                    denom = 1 + (r.get("change") or 0) / 100.0
+                    prev = fc / denom if denom else None
                 if prev and prev > 0:
-                    r["change"] = (p / prev - 1) * 100.0
+                    r["change"] = (p / prev - 1) * 100.0  # 관심종목과 동일 기준
                 r["marcap"] = r["marcap"] * p / fc  # 시총도 새 현재가에 맞춰 보정
                 r["close"] = p
     except Exception:
         pass
     return result
+
+
+_prev_close_cache = {"date": None, "map": {}}  # code -> 전일 종가(토스), 하루 캐시
+
+
+def _toss_prev_closes(codes, today) -> dict:
+    """상위 종목 전일 종가(토스 확정 종가, 하루 1회 캐시). {code: prev_close}."""
+    if _prev_close_cache["date"] != today:
+        _prev_close_cache["date"] = today
+        _prev_close_cache["map"] = {}
+    m = _prev_close_cache["map"]
+    from quant.data.toss import get_daily_prices
+
+    for c in codes:
+        if c in m:
+            continue
+        try:
+            dp = get_daily_prices(c, count=1)  # 확정 최근 종가(당일 제외)=전일 종가
+            m[c] = dp[-1] if dp else None
+        except Exception:
+            m[c] = None
+    return m
 
 
 _NASDAQ_HEADERS = {
