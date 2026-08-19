@@ -425,6 +425,18 @@ def _ttl_seconds(now: datetime.datetime) -> int:
     return 30 if _is_market_hours(now) else 600
 
 
+def _price_basis(now: datetime.datetime) -> dict:
+    """현재가가 어느 장 기준인지. 현재가=실시간(정규/NXT), 등락률=전일 정규장 종가 기준."""
+    if now.weekday() >= 5:
+        return {"label": "장 마감 · 최종 종가", "kind": "closed"}
+    t = now.time()
+    if datetime.time(9, 0) <= t < datetime.time(15, 30):
+        return {"label": "정규장 실시간", "kind": "regular"}
+    if datetime.time(8, 0) <= t < datetime.time(9, 0) or datetime.time(15, 30) <= t < datetime.time(20, 0):
+        return {"label": "NXT 시간외 실시간", "kind": "nxt"}
+    return {"label": "장 마감 · 최종 종가", "kind": "closed"}
+
+
 def get_state(force: bool = False) -> dict:
     now = datetime.datetime.now()
     with _lock:
@@ -477,6 +489,8 @@ def get_state(force: bool = False) -> dict:
         cp = row.get("current_price")
         if rc and rc > 0 and cp is not None:
             row["change_pct"] = (cp / rc - 1) * 100.0
+
+    state["price_basis"] = _price_basis(now)  # 현재가가 어느 장 기준인지
 
     with _lock:
         _cache["at"] = now

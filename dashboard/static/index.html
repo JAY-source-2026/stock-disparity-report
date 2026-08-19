@@ -111,6 +111,11 @@
   .rbtn:hover{border-color:var(--blue);}
   .rbtn:disabled{opacity:.5; cursor:default;}
   .asof{color:var(--sub); font-size:11px;}
+  .pbasis{font-size:11px; font-weight:700; padding:2px 9px; border-radius:11px; white-space:nowrap;}
+  .pbasis:empty{display:none;}
+  .pbasis.pb-regular{background:rgba(52,133,250,.18); color:#7db3ff;}
+  .pbasis.pb-nxt{background:rgba(155,120,255,.20); color:#c3aaff;}
+  .pbasis.pb-closed{background:rgba(139,149,161,.16); color:#9aa4b0;}
   /* 연도별 목표 자산 */
   .goalcard{margin-bottom:12px;}
   .goals{display:flex; gap:10px; flex-wrap:wrap;}
@@ -265,6 +270,7 @@
     <h1>Jay's rich project <span class="muted" id="src"></span></h1>
     <div class="hdr-right">
       <button id="refreshBtn" class="rbtn" onclick="manualRefresh()">↻ 현재가 새로고침</button>
+      <span id="priceBasis" class="pbasis"></span>
       <span id="asOf" class="asof"></span>
       <div class="clock" id="clock">—</div>
     </div>
@@ -1055,6 +1061,9 @@ async function refresh(force){
     document.getElementById("clock").textContent="갱신 "+ (s.generated_at||"").replace("T"," ");
     document.getElementById("src").textContent="· "+(s.notice||"");
     document.getElementById("asOf").textContent="현재가 "+stamp;
+    const pb=s.price_basis||{}, pbEl=document.getElementById("priceBasis");
+    if(pbEl){ pbEl.textContent=pb.label||""; pbEl.className="pbasis pb-"+(pb.kind||"closed");
+      pbEl.title="현재가 = "+(pb.label||"")+" · 등락률 = 전일 정규장 종가 대비"; }
     renderRisk(s.risk_alerts);
     renderMacro(s.macro||[], s.us_index||[]);
     renderTopMarcap(s.top_marcap||{});
