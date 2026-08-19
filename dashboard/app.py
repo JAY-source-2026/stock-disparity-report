@@ -143,8 +143,14 @@ def _get_top_marcap(today, n: int = 100) -> dict:
         prices = get_current_prices(codes) if codes else {}
         for r in top:
             p = prices.get(r["code"])
-            if p and r.get("close"):
-                r["marcap"] = r["marcap"] * p / r["close"]  # 시총도 새 현재가에 맞춰 보정
+            fc = r.get("close")
+            if p and fc:
+                # 전일 종가 = FDR close/(1+change%) (하루 안 변함) → 토스가로 등락률 즉석 계산
+                denom = 1 + (r.get("change") or 0) / 100.0
+                prev = fc / denom if denom else None
+                if prev and prev > 0:
+                    r["change"] = (p / prev - 1) * 100.0
+                r["marcap"] = r["marcap"] * p / fc  # 시총도 새 현재가에 맞춰 보정
                 r["close"] = p
     except Exception:
         pass
