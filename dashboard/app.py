@@ -80,8 +80,6 @@ def _get_listing(today) -> list:
 
 _top_cache = {"rows": {"KOSPI": [], "KOSDAQ": [], "US": []}, "kr_at": None, "us_at": None}
 _top_fail_until = 0.0  # 국내(KRX) 시총 조회 실패 시 재시도 쿨다운
-# 전일 "정규장" 종가 맵(code→종가). 등락률 기준 통일용(토스 캔들은 NXT 종가라 부정확).
-_regclose_map = {"date": None, "map": {}}
 
 
 def _get_top_marcap(today, n: int = 100) -> dict:
@@ -122,15 +120,6 @@ def _get_top_marcap(today, n: int = 100) -> dict:
             rows["KOSPI"] = _build(df[market == "KOSPI"])
             rows["KOSDAQ"] = _build(df[market.str.startswith("KOSDAQ")])
             _top_cache["kr_at"] = now
-            # 전일 정규장 종가 맵 = Close - Changes (FDR은 KRX 정규장 기준)
-            if _regclose_map["date"] != today:
-                _regclose_map["date"] = today
-                _regclose_map["map"] = {}
-            try:
-                reg = df["Close"] - df["Changes"]
-                _regclose_map["map"].update(dict(zip(df["Code"].astype(str), reg)))
-            except Exception:
-                pass
         except Exception:
             _top_fail_until = time.time() + 900  # 15분 백오프
 
@@ -149,10 +138,12 @@ def _get_top_marcap(today, n: int = 100) -> dict:
     try:
         from quant.data.toss import get_current_prices
 
+        from quant.data.krx import get_prev_regclose_map
+
         top = result["KOSPI"][:10] + result["KOSDAQ"][:10]
         codes = [r["code"] for r in top if str(r.get("code", "")).isdigit()]
         prices = get_current_prices(codes) if codes else {}
-        rmap = _regclose_map["map"]
+        rmap = get_prev_regclose_map(today)  # 직전 거래일 정규장 종가(토스 기준과 동일)
         for r in top:
             p = prices.get(r["code"])
             fc = r.get("close")
@@ -479,7 +470,8 @@ def get_state(force: bool = False) -> dict:
         k = kmap.get(mrow.get("key"))
         mrow["investor"] = inv.get(k) if k else None
     # 보유 종목별 월봉10이평 + 현재가 위치 판단 + 등락률 기준 통일
-    regmap = _regclose_map["map"] if _regclose_map["date"] == now.date() else {}
+    from quant.data.krx import get_prev_regclose_map
+    regmap = get_prev_regclose_map(now.date())  # 직전 거래일 정규장 종가(토스 기준과 동일)
     for row in state.get("holdings", []):
         ma = _monthly_ma10(row["code"], now.date())
         row["monthly_ma10"] = ma

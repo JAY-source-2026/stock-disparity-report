@@ -34,6 +34,50 @@ def _krx_note_fail(seconds: int = 900) -> None:
     _krx_fail_until = time.time() + seconds
 
 
+# 전일(직전 거래일) 정규장 종가 맵 — 등락률 기준을 토스와 동일하게(KRX 정규장 종가).
+# 토스 캔들 종가는 NXT(20시) 종가라 정규장 종가와 다르다. 토스 앱 등락률은
+# '직전 거래일 정규장 종가' 기준이므로 이 맵으로 통일한다. 하루 1회 캐시.
+_prev_regclose = {"date": None, "map": {}}
+
+
+def get_prev_regclose_map(today: Optional[datetime.date] = None) -> dict:
+    """직전 거래일 정규장 종가 맵 {code(str): close(float)}. KRX 공식(pykrx), 하루 캐시.
+
+    오늘(장 시작 전·장중·시간외 포함) 내내 '전일 종가' = 오늘 직전 거래일의 정규장
+    종가로 고정된다. 미로그인/백오프/실패 시 마지막 성공 맵(없으면 빈 dict) 반환.
+    """
+    today = today or datetime.date.today()
+    if _prev_regclose["date"] == today and _prev_regclose["map"]:
+        return _prev_regclose["map"]
+    if not krx_available() or _krx_cooldown():
+        return _prev_regclose["map"]
+    try:
+        from pykrx import stock
+
+        start = (today - datetime.timedelta(days=15)).strftime("%Y%m%d")
+        idx = stock.get_index_ohlcv(start, today.strftime("%Y%m%d"), "1001")
+        days = [d.date() for d in idx.index if d.date() < today]  # 오늘 제외 → 직전 거래일
+        if not days:
+            return _prev_regclose["map"]
+        prev = days[-1].strftime("%Y%m%d")
+        m = {}
+        for mkt in ("KOSPI", "KOSDAQ"):
+            df = stock.get_market_ohlcv_by_ticker(prev, market=mkt)
+            if df is None or df.empty or "종가" not in df.columns:
+                continue
+            for code, close in zip(df.index, df["종가"]):
+                try:
+                    m[str(code)] = float(close)
+                except Exception:
+                    pass
+        if m:
+            _prev_regclose["date"] = today
+            _prev_regclose["map"] = m
+    except Exception:
+        _krx_note_fail()  # KRX 공용 15분 백오프
+    return _prev_regclose["map"]
+
+
 def get_index_investor(market: str = "KOSPI", date: Optional[str] = None) -> Optional[dict]:
     """지수 투자자별 순매수(억원). {'individual','foreign','institution','source'} 또는 None.
 
