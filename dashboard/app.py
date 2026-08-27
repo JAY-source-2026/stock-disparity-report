@@ -555,6 +555,32 @@ def api_search():
     return jsonify(store.filter_listing(rows, q))
 
 
+def _build_single_holding(pos: dict, now: datetime.datetime) -> dict:
+    """종목 1개의 대시보드 행 생성 — get_state 후처리(월봉10선·등락률 기준)와 동일.
+    추가 시 전체 재빌드(~8초)를 피하려고 새 종목 1건만 만든다."""
+    today = now.date()
+    prov = (FinanceDataReaderProvider() if pos.get("currency") == "USD" else TossProvider())
+    tcode = get_target_code(pos["code"])
+    tp = None
+    if get_target_price_consensus is not None:
+        try:
+            tp = get_target_price_consensus([tcode]).get(tcode)
+            if _consensus_cache["date"] == today and isinstance(_consensus_cache["map"], dict):
+                _consensus_cache["map"][tcode] = tp  # 다음 폴링에서도 유지되게 캐시에 반영
+        except Exception:
+            tp = None
+    row = service.build_position_row(prov, pos, today, target_price=tp)
+    ma = _monthly_ma10(row["code"], today)
+    row["monthly_ma10"] = ma
+    row["price_position"] = _price_position(row.get("current_price"), ma)
+    from quant.data.krx import get_prev_regclose_map
+    rc = get_prev_regclose_map(today).get(str(row.get("code")))
+    cp = row.get("current_price")
+    if rc and rc > 0 and cp is not None:
+        row["change_pct"] = (cp / rc - 1) * 100.0
+    return row
+
+
 @app.route("/api/holdings/add", methods=["POST"])
 def api_holdings_add():
     body = request.get_json(force=True, silent=True) or {}
@@ -574,8 +600,24 @@ def api_holdings_add():
     market = market or "KRX"
     currency = currency or "KRW"
     added = store.add_position(code, name or code, market=market, currency=currency)
-    _invalidate_caches()
-    return jsonify({"added": added, "code": code, "name": name or code})
+    # 전체 재빌드(~8초) 대신 새 종목 1건만 만들어 캐시에 덧붙인다(속도).
+    row = None
+    if added:
+        try:
+            now = datetime.datetime.now()
+            pos = next((p for p in service.load_holdings().get("positions", [])
+                        if str(p.get("code")) == code), None)
+            if pos is not None:
+                row = _build_single_holding(pos, now)
+                with _lock:
+                    st = _cache.get("state")
+                    if st is not None:
+                        st["holdings"] = [r for r in st.get("holdings", [])
+                                          if str(r.get("code")) != code] + [row]
+        except Exception:
+            row = None
+            _invalidate_caches()  # 단일 빌드 실패 시 다음 조회에서 안전하게 전체 재빌드
+    return jsonify({"added": added, "code": code, "name": name or code, "row": row})
 
 
 @app.route("/api/holdings/arrange", methods=["POST"])
@@ -597,7 +639,14 @@ def api_holdings_sector():
     if not code:
         return jsonify({"error": "code required"}), 400
     ok = store.set_sector(code, sector)
-    _invalidate_caches()
+    # 전체 재빌드(~8초) 없이 캐시된 상태의 해당 종목 sector만 즉시 반영(속도).
+    with _lock:
+        st = _cache.get("state")
+        if st:
+            for row in st.get("holdings", []):
+                if str(row.get("code")) == code:
+                    row["sector"] = sector
+                    break
     return jsonify({"ok": ok, "code": code, "sector": sector})
 
 

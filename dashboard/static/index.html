@@ -595,11 +595,14 @@ function attachSectorHandlers(){
       const hint = ALL_SECTORS.length ? `\n\n기존 섹터: ${ALL_SECTORS.join(", ")}` : "";
       const v = prompt(`'${el.dataset.name}' 섹터 입력 (비우면 미분류)`+hint, cur);
       if(v===null) return;
+      const sec=v.trim();
       try{
         await fetch("/api/holdings/sector",{method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({code:el.dataset.code, sector:v.trim()})});
+          body:JSON.stringify({code:el.dataset.code, sector:sec})});
       }catch(err){ alert("섹터 저장 실패: "+err); return; }
-      refresh();
+      const row=LAST_HOLDINGS.find(r=>String(r.code)===String(el.dataset.code));
+      if(row) row.sector=sec;              // 로컬 데이터만 갱신
+      renderHoldings(LAST_HOLDINGS);        // 즉시 재렌더(전체 재조회 없음)
     });
   });
 }
@@ -632,9 +635,18 @@ async function onDragEnd(e){
   el.classList.remove("dragging");
   lastDragAt=Date.now();  // 드래그 직후 폴링 쿨다운 기준
   setTimeout(()=>{ draggingNow=false; }, 60);
-  const sectorChanged = await assignSectorByDrop(el);  // 섹터 그룹에 놓으면 자동 편입
+  const sectorChanged = await assignSectorByDrop(el);  // 섹터 그룹에 놓으면 자동 편입(로컬 데이터도 갱신)
   await persistArrange();                                // 순서 저장(섹터 필드는 보존됨)
-  if(sectorChanged) refresh();                           // 그룹 재정렬을 화면에 반영
+  if(sectorChanged){ syncHoldingsFromDOM(); renderHoldings(LAST_HOLDINGS); }  // 로컬 재렌더(전체 재조회 없음)
+}
+// 현재 DOM의 행 순서/소속(관심·보유)을 LAST_HOLDINGS에 반영 — 로컬 재렌더용
+function syncHoldingsFromDOM(){
+  const byCode={}; LAST_HOLDINGS.forEach(r=>byCode[String(r.code)]=r);
+  const arr=[], seen=new Set();
+  document.querySelectorAll("#holdings tr.row").forEach(tr=>{ const r=byCode[String(tr.dataset.code)]; if(r){ r.owned=false; arr.push(r); seen.add(String(r.code)); }});
+  document.querySelectorAll("#owned tr.row").forEach(tr=>{ const r=byCode[String(tr.dataset.code)]; if(r){ r.owned=true; arr.push(r); seen.add(String(r.code)); }});
+  LAST_HOLDINGS.forEach(r=>{ if(!seen.has(String(r.code))) arr.push(r); });  // DOM에 없던 행 유지
+  LAST_HOLDINGS=arr;
 }
 
 // 관심종목 '섹터별 그룹' 모드에서 행을 어떤 섹터 그룹 영역에 드롭하면 그 섹터로 자동 편입.
@@ -655,6 +667,8 @@ async function assignSectorByDrop(el){
     await fetch("/api/holdings/sector",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({code:el.dataset.code, sector})});
   }catch(err){ return false; }
+  const row=LAST_HOLDINGS.find(r=>String(r.code)===String(el.dataset.code));
+  if(row) row.sector=sector;   // 로컬 데이터 즉시 갱신(전체 재조회 없음)
   return true;
 }
 function dragAfter(tbody, y){
@@ -1107,9 +1121,10 @@ async function addStock(code, name, market, currency){
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({code, name, market, currency})});
     const r=await res.json();
-    if(r.added===false) alert(`'${name}'은(는) 이미 목록에 있습니다.`);
-  }catch(e){ alert("추가 실패: "+e); }
-  refresh();
+    if(r.added===false){ alert(`'${name}'은(는) 이미 목록에 있습니다.`); return; }
+    if(r.row){ LAST_HOLDINGS.push(r.row); renderHoldings(LAST_HOLDINGS); }  // 새 행만 로컬 추가(전체 재조회 없음)
+    else refresh();  // 서버가 행을 못 준 경우만 전체 갱신
+  }catch(e){ alert("추가 실패: "+e); refresh(); }
 }
 
 async function removeStock(code, name){
