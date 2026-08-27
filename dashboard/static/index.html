@@ -627,11 +627,35 @@ function onDragStart(e){
   e.dataTransfer.effectAllowed="move";
   try{ e.dataTransfer.setData("text/plain", e.currentTarget.dataset.code); }catch(_){}
 }
-function onDragEnd(e){
-  e.currentTarget.classList.remove("dragging");
+async function onDragEnd(e){
+  const el=e.currentTarget;
+  el.classList.remove("dragging");
   lastDragAt=Date.now();  // 드래그 직후 폴링 쿨다운 기준
   setTimeout(()=>{ draggingNow=false; }, 60);
-  persistArrange();
+  const sectorChanged = await assignSectorByDrop(el);  // 섹터 그룹에 놓으면 자동 편입
+  await persistArrange();                                // 순서 저장(섹터 필드는 보존됨)
+  if(sectorChanged) refresh();                           // 그룹 재정렬을 화면에 반영
+}
+
+// 관심종목 '섹터별 그룹' 모드에서 행을 어떤 섹터 그룹 영역에 드롭하면 그 섹터로 자동 편입.
+// 드롭된 행 바로 위의 섹터 헤더를 찾아 그 섹터로 지정('미분류' 그룹에 놓으면 섹터 해제).
+async function assignSectorByDrop(el){
+  if(!secGroupOn()) return false;                          // 그룹 모드일 때만
+  if(el.closest("tbody")?.id !== "holdings") return false; // 관심종목 표에 놓았을 때만(보유표 제외)
+  let node=el.previousElementSibling, sector=null;
+  while(node){
+    if(node.classList.contains("secgroup")){ sector=node.querySelector(".sectag").textContent; break; }
+    node=node.previousElementSibling;
+  }
+  if(sector===null) return false;
+  if(sector==="미분류") sector="";                          // 미분류 그룹 = 섹터 해제
+  const cur=el.querySelector(".secchip")?.dataset.sector || "";
+  if(sector===cur) return false;                           // 이미 그 섹터면 변화 없음
+  try{
+    await fetch("/api/holdings/sector",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({code:el.dataset.code, sector})});
+  }catch(err){ return false; }
+  return true;
 }
 function dragAfter(tbody, y){
   const rows=[...tbody.querySelectorAll("tr.row:not(.dragging)")];
