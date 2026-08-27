@@ -71,10 +71,23 @@ def add_position(
                 "target_weight": None,
                 "active": True,
                 "owned": False,  # 검색 추가는 항상 관심 종목으로
+                "sector": "",     # 사용자 지정 섹터(관심종목 분류용)
             }
         )
         _atomic_write(path, data)
         return True
+
+
+def set_sector(code: str, sector: str, path: str = HOLDINGS_PATH) -> bool:
+    """관심/보유 종목의 섹터(분류) 설정. 해당 종목이 있으면 True, 없으면 False."""
+    with _lock:
+        data = load_holdings(path)
+        for p in data.get("positions", []):
+            if str(p.get("code")) == str(code):
+                p["sector"] = sector
+                _atomic_write(path, data)
+                return True
+    return False
 
 
 def arrange(watch_codes, owned_codes, path: str = HOLDINGS_PATH) -> bool:

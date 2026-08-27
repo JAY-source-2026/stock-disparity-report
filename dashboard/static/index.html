@@ -75,6 +75,22 @@
   table.holdings .drag{color:var(--sub); cursor:grab; margin-right:7px; font-size:12px; letter-spacing:-2px;}
   table.holdings tbody.droptbody{min-height:44px;}
   table.holdings tr.emptyrow td{border-bottom:0;}
+  /* 섹터 분류 */
+  h2 .secgrp{font-size:12px; font-weight:500; color:var(--sub); margin-left:10px; cursor:pointer; user-select:none;}
+  h2 .secgrp input{vertical-align:middle; margin-right:3px; cursor:pointer;}
+  table.holdings tr.secgroup td{
+    background:var(--card2); text-align:left; padding:5px 10px;
+    border-bottom:1px solid var(--line); border-top:1px solid var(--line);
+  }
+  .sectag{font-weight:700; font-size:12px; color:var(--text); letter-spacing:.02em;}
+  .seccount{color:var(--sub); font-size:11px; margin-left:8px; font-weight:500;}
+  .secchip{
+    display:inline-block; margin-left:8px; padding:1px 7px; border-radius:7px;
+    font-size:10.5px; font-weight:600; line-height:1.5; cursor:pointer; white-space:nowrap;
+    border:1px solid var(--line); color:var(--sub); background:transparent;
+  }
+  .secchip:hover{border-color:#4c8dff; color:#4c8dff;}
+  .secchip.empty{opacity:.5; font-weight:500;}
   .name{font-weight:600;} .code{color:var(--sub); font-size:11px; margin-left:6px;}
   .comment{color:var(--sub); font-size:12px; text-align:center; max-width:280px; white-space:normal;}
   /* 판단 문구 컬러 (이격도 배지 색상과 동일 체계) */
@@ -309,7 +325,8 @@
   <div>
     <!-- 보유 종목 테이블 (17-1) — 전체 폭 -->
     <div class="card">
-      <h2>관심 종목 <span class="hint">드래그로 순서변경 / 보유 종목으로 이동 · 클릭 시 차트</span></h2>
+      <h2>관심 종목 <span class="hint">드래그로 순서변경 / 보유 종목으로 이동 · 클릭 시 차트 · 종목명 옆 섹터칩 클릭해 분류</span>
+        <label class="secgrp"><input type="checkbox" id="secGroupChk" checked> 섹터별 그룹</label></h2>
       <div class="addbar">
         <input id="stockSearch" type="text" autocomplete="off"
                placeholder="종목명으로 검색해서 추가 (예: 삼성전자)">
@@ -520,12 +537,12 @@ function renderMacro(macroList, usList){
 function rowHtml(r){
   if(r.error && r.current_price==null){
     return `<tr class="row" draggable="true" data-code="${r.code}" data-name="${r.name}">
-      <td class="l"><span class="drag">⠿</span><span class="name">${r.name}</span><span class="code">${r.code}</span></td>
+      <td class="l"><span class="drag">⠿</span><span class="name">${r.name}</span><span class="code">${r.code}</span>${secChip(r)}</td>
       <td colspan="8" class="err l">데이터 오류: ${r.error}</td>
       <td><button class="del" data-code="${r.code}" data-name="${r.name}" title="삭제">✕</button></td></tr>`;
   }
   return `<tr class="row" draggable="true" data-code="${r.code}" data-name="${r.name}">
-    <td class="l"><span class="drag">⠿</span><span class="name">${r.name}</span><span class="code">${r.code}</span></td>
+    <td class="l"><span class="drag">⠿</span><span class="name">${r.name}</span><span class="code">${r.code}</span>${secChip(r)}</td>
     <td class="num gl">${curFmt(r.current_price, r.currency)}</td>
     <td>${chip(r.change_pct)}</td>
     <td class="num gl mac">${r.ma20!=null? curFmt(r.ma20, r.currency) : "-"}</td>
@@ -539,11 +556,52 @@ function rowHtml(r){
 }
 function emptyRow(msg){ return `<tr class="emptyrow"><td colspan="11" class="sub" style="text-align:center;padding:14px;">${msg}</td></tr>`; }
 
+// ===== 섹터(분류) =====
+let LAST_HOLDINGS=[], ALL_SECTORS=[];
+function escAttr(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+function secGroupOn(){ const c=document.getElementById("secGroupChk"); return c ? c.checked : true; }
+// 관심종목(watch)에만 섹터칩 표시 — 클릭해서 섹터 지정/변경
+function secChip(r){
+  if(r.owned) return "";
+  const s=r.sector||"";
+  return `<span class="secchip${s?"":" empty"}" data-code="${r.code}" data-name="${escAttr(r.name)}" data-sector="${escAttr(s)}" title="클릭해 섹터 지정">${s?escAttr(s):"＋섹터"}</span>`;
+}
+// watch 행을 섹터별로 묶어 헤더 + 행들로 렌더 (미분류는 맨 뒤). 토글 off면 평면.
+function groupBySector(rows){
+  if(!rows.length) return "";
+  if(!secGroupOn()) return rows.map(rowHtml).join("");
+  const order=[], map={};
+  rows.forEach(r=>{ const s=r.sector||""; if(!(s in map)){ map[s]=[]; order.push(s); } map[s].push(r); });
+  order.sort((a,b)=> (a===""?1:0)-(b===""?1:0));  // 미분류("")를 맨 뒤로
+  return order.map(s=>{
+    const head=`<tr class="secgroup"><td colspan="10" class="l"><span class="sectag">${s?escAttr(s):"미분류"}</span><span class="seccount">${map[s].length}</span></td></tr>`;
+    return head + map[s].map(rowHtml).join("");
+  }).join("");
+}
 function renderHoldings(rows){
+  LAST_HOLDINGS=rows;
   const watch=rows.filter(r=>!r.owned), owned=rows.filter(r=>r.owned);
-  document.getElementById("holdings").innerHTML = watch.map(rowHtml).join("") || emptyRow("관심 종목 없음 — 위 검색창에서 추가하세요");
+  ALL_SECTORS=[...new Set(watch.map(r=>r.sector).filter(Boolean))];
+  document.getElementById("holdings").innerHTML = groupBySector(watch) || emptyRow("관심 종목 없음 — 위 검색창에서 추가하세요");
   document.getElementById("owned").innerHTML = owned.map(rowHtml).join("") || emptyRow("보유 종목 없음 — 관심 종목에서 드래그해 옮기세요");
   attachRowHandlers();
+  attachSectorHandlers();
+}
+function attachSectorHandlers(){
+  document.querySelectorAll(".secchip").forEach(el=>{
+    el.addEventListener("click", async e=>{
+      e.stopPropagation();   // 차트 열림/드래그 방지
+      const cur=el.dataset.sector||"";
+      const hint = ALL_SECTORS.length ? `\n\n기존 섹터: ${ALL_SECTORS.join(", ")}` : "";
+      const v = prompt(`'${el.dataset.name}' 섹터 입력 (비우면 미분류)`+hint, cur);
+      if(v===null) return;
+      try{
+        await fetch("/api/holdings/sector",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({code:el.dataset.code, sector:v.trim()})});
+      }catch(err){ alert("섹터 저장 실패: "+err); return; }
+      refresh();
+    });
+  });
 }
 
 function attachRowHandlers(){
@@ -1018,7 +1076,7 @@ async function doSearch(q){
 async function addStock(code, name, market, currency){
   resultsBox.style.display="none";
   const where = currency==="USD" ? " (해외)" : "";
-  if(!confirm(`'${name}'(${code})${where}을(를) 보유 목록에 추가하시겠습니까?`)) return;  // 확인 후에만 추가
+  if(!confirm(`'${name}'(${code})${where}을(를) 관심 종목에 추가하시겠습니까?`)) return;  // 확인 후에만 추가
   searchBox.value="";
   try{
     const res=await fetch("/api/holdings/add", {method:"POST",
@@ -1041,6 +1099,17 @@ async function removeStock(code, name){
 
 // 바깥 클릭 시 검색 드롭다운 닫기
 document.addEventListener("click", e=>{ if(!e.target.closest(".addbar")) resultsBox.style.display="none"; });
+
+// 섹터별 그룹 토글 (localStorage 기억, 재조회 없이 즉시 재렌더)
+(function initSecGroupToggle(){
+  const c=document.getElementById("secGroupChk");
+  if(!c) return;
+  try{ const v=localStorage.getItem("secGroup"); if(v!==null) c.checked = v==="1"; }catch(e){}
+  c.addEventListener("change", ()=>{
+    try{ localStorage.setItem("secGroup", c.checked?"1":"0"); }catch(e){}
+    renderHoldings(LAST_HOLDINGS);
+  });
+})();
 
 function fmtAsOf(iso){
   const m=(iso||"").match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);

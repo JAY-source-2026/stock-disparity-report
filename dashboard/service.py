@@ -174,6 +174,7 @@ def build_position_row(
         "avg_price": position.get("avg_price"),
         "target_weight": position.get("target_weight"),
         "owned": bool(position.get("owned", False)),
+        "sector": position.get("sector") or "",  # 사용자 지정 섹터(관심종목 분류용)
         "current_price": None,
         "change_pct": None,
         "ma20": None,

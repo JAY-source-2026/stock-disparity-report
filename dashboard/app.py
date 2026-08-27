@@ -588,6 +588,19 @@ def api_holdings_arrange():
     return jsonify({"ok": True})
 
 
+@app.route("/api/holdings/sector", methods=["POST"])
+def api_holdings_sector():
+    """관심종목 섹터(분류) 저장. body: {code, sector}. 빈 sector = 미분류."""
+    body = request.get_json(force=True, silent=True) or {}
+    code = str(body.get("code", "")).strip()
+    sector = str(body.get("sector", "")).strip()
+    if not code:
+        return jsonify({"error": "code required"}), 400
+    ok = store.set_sector(code, sector)
+    _invalidate_caches()
+    return jsonify({"ok": ok, "code": code, "sector": sector})
+
+
 @app.route("/api/holdings/remove", methods=["POST"])
 def api_holdings_remove():
     body = request.get_json(force=True, silent=True) or {}
