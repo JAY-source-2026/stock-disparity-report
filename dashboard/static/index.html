@@ -637,7 +637,9 @@ async function onDragEnd(e){
   setTimeout(()=>{ draggingNow=false; }, 60);
   const sectorChanged = await assignSectorByDrop(el);  // 섹터 그룹에 놓으면 자동 편입(로컬 데이터도 갱신)
   await persistArrange();                                // 순서 저장(섹터 필드는 보존됨)
-  if(sectorChanged){ syncHoldingsFromDOM(); renderHoldings(LAST_HOLDINGS); }  // 로컬 재렌더(전체 재조회 없음)
+  syncHoldingsFromDOM();   // ★항상 LAST_HOLDINGS를 현재 화면(관심/보유·순서)과 동기화 →
+                          //   이후 로컬 재렌더가 관심↔보유 이동을 되돌리지 않도록
+  if(sectorChanged) renderHoldings(LAST_HOLDINGS);  // 섹터 바뀐 경우만 재렌더(그룹 재정렬)
 }
 // 현재 DOM의 행 순서/소속(관심·보유)을 LAST_HOLDINGS에 반영 — 로컬 재렌더용
 function syncHoldingsFromDOM(){
