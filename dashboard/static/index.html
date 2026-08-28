@@ -204,6 +204,12 @@
   .malegend{font-size:12px; font-weight:700; display:flex; gap:10px;}
   #chartBox{width:100%; height:300px;}
   #volBox{width:100%; height:130px;}
+  /* 최고점 대비 낙폭 배지 */
+  .peakinfo{font-size:12px; color:var(--sub); margin:6px 0 2px; font-weight:600; min-height:16px;}
+  .peakinfo b{color:#F5A623; font-weight:700;}          /* 최고점 값 */
+  .peakinfo .pkdate{color:var(--sub); font-weight:400; font-size:11px;}
+  .peakinfo b.dn{color:#3485FA;}                         /* 낙폭(하락) 파랑 */
+  .peakinfo b.up{color:#F04452;}                         /* 상승 빨강 */
   .voltitle{font-size:11px; color:var(--sub); margin:10px 0 2px; font-weight:700;}
   .voltitle #volReadout{font-weight:400; margin-left:8px; color:#C7CDD6;}
 
@@ -426,6 +432,7 @@
         </div>
         <div class="malegend" id="maLegend"></div>
       </div>
+      <div class="peakinfo" id="peakInfo"></div>
       <div id="chartBox"></div>
       <div class="voltitle">거래대금 <span id="volReadout"></span></div>
       <div id="volBox"></div>
@@ -825,6 +832,7 @@ let priceChart=null, volChart=null, candleSeries=null, volSeries=null, maSeries=
 let rawCandles=[], curTf="D", curCode=null, curCurrency="KRW";
 let closeMap={}, volMap={}, syncing=false;
 let priceLines=[], lineMode=false;  // 임시 수평선 (모달 닫으면 사라짐)
+let peakLine=null, curData=[], peakTimer=null;  // 최고점 대비 낙폭 표시용
 const MA_DEFS=[{p:10,c:"#26C6DA"},{p:20,c:"#F0A040"},{p:60,c:"#2EC46B"},{p:120,c:"#9B6CF0"}];
 
 async function openDetail(code, name){
@@ -939,6 +947,10 @@ function ensureChart(){
   const pTS=priceChart.timeScale(), vTS=volChart.timeScale();
   pTS.subscribeVisibleLogicalRangeChange(r=>{ if(syncing||!r)return; syncing=true; try{ vTS.setVisibleLogicalRange(r); }finally{ syncing=false; } });
   vTS.subscribeVisibleLogicalRangeChange(r=>{ if(syncing||!r)return; syncing=true; try{ pTS.setVisibleLogicalRange(r); }finally{ syncing=false; } });
+  peakLine=null; curData=[];
+  { const pk=document.getElementById("peakInfo"); if(pk) pk.textContent=""; }  // 이전 종목 배지 초기화
+  // 보이는 구간이 바뀌면(확대·이동) 최고점/낙폭 갱신 (디바운스)
+  pTS.subscribeVisibleTimeRangeChange(()=>{ clearTimeout(peakTimer); peakTimer=setTimeout(updatePeak, 90); });
   // 십자선 연동 + 거래대금 값 표시
   priceChart.subscribeCrosshairMove(p=>{ syncCross(p, volChart, volSeries, volMap); updateReadout(p); });
   volChart.subscribeCrosshairMove(p=>{ syncCross(p, priceChart, candleSeries, closeMap); updateReadout(p); });
@@ -1009,6 +1021,7 @@ function setTf(tf){
   curTf=tf;
   document.querySelectorAll(".iv").forEach(b=>b.classList.toggle("active", b.dataset.iv===tf));
   const data=resample(rawCandles, tf);
+  curData=data;  // 최고점/낙폭 계산용
   candleSeries.setData(data.map(c=>({time:c.time, open:c.open, high:c.high, low:c.low, close:c.close})));
   volSeries.setData(data.map(c=>({ time:c.time, value:c.close*(c.volume||0),
     color: c.close>=c.open ? "rgba(240,68,82,.55)" : "rgba(52,133,250,.55)" })));
@@ -1027,6 +1040,42 @@ function setTf(tf){
   document.getElementById("maLegend").innerHTML=legend;
   priceChart.timeScale().fitContent();
   syncRanges();  // 거래대금 차트를 주가 차트와 정확히 같은 범위로 맞춤
+  setTimeout(updatePeak, 60);  // fitContent 후 보이는 구간 기준 최고점/낙폭 표시
+}
+
+// 화면에 보이는 구간의 최고점(고가 최댓값) 대비 현재가 낙폭을 배지+가격선+마커로 표시.
+// HTS처럼 확대/이동하면 보이는 구간 기준으로 다시 계산된다.
+function fmtPrice(v){
+  if(curCurrency==="USD") return "$"+Number(v).toLocaleString("en-US",{maximumFractionDigits:2});
+  if(curCurrency==="KRW") return Math.round(v).toLocaleString("ko-KR")+"원";
+  return Number(v).toLocaleString("ko-KR",{maximumFractionDigits:2});  // IDX: 포인트
+}
+function updatePeak(){
+  const el=document.getElementById("peakInfo");
+  if(!priceChart||!candleSeries||!curData||!curData.length){ if(el) el.textContent=""; return; }
+  let vr=null; try{ vr=priceChart.timeScale().getVisibleRange(); }catch(e){}
+  const kf=vr?timeKey(vr.from):null, kt=vr?timeKey(vr.to):null;
+  const vis = vr ? curData.filter(c=>{ const k=timeKey(c.time); return k>=kf && k<=kt; }) : curData;
+  const arr = vis.length ? vis : curData;
+  let peak=-Infinity, peakBar=arr[0];
+  arr.forEach(c=>{ if(c.high>peak){ peak=c.high; peakBar=c; } });
+  const cur = arr[arr.length-1].close;         // 보이는 구간의 가장 최근 종가
+  const dd = peak>0 ? (cur/peak-1)*100 : 0;    // 최고점 대비 낙폭(음수)
+  if(el){
+    el.innerHTML = `최고점 <b>${fmtPrice(peak)}</b> <span class="pkdate">(${peakBar.time})</span>`
+      + ` · 현재 대비 <b class="${dd<0?'dn':'up'}">${dd>0?'+':''}${dd.toFixed(2)}%</b>`;
+  }
+  // 차트 위 최고점 가격선(주황 점선)
+  try{ if(peakLine) candleSeries.removePriceLine(peakLine); }catch(e){}
+  try{
+    peakLine=candleSeries.createPriceLine({ price:peak, color:"#F5A623", lineWidth:1,
+      lineStyle:2, axisLabelVisible:true, title:"최고점" });
+  }catch(e){ peakLine=null; }
+  // 최고점 캔들에 마커
+  try{
+    candleSeries.setMarkers([{ time:peakBar.time, position:"aboveBar", color:"#F5A623",
+      shape:"arrowDown", text:"최고 "+fmtPrice(peak) }]);
+  }catch(e){}
 }
 
 function syncRanges(){
