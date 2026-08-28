@@ -1063,7 +1063,7 @@ function updatePeak(){
   const dd = peak>0 ? (cur/peak-1)*100 : 0;    // 최고점 대비 낙폭(음수)
   if(el){
     el.innerHTML = `최고점 <b>${fmtPrice(peak)}</b> <span class="pkdate">(${peakBar.time})</span>`
-      + ` · 현재 대비 <b class="${dd<0?'dn':'up'}">${dd>0?'+':''}${dd.toFixed(2)}%</b>`;
+      + ` 대비 현재가 <b class="${dd<0?'dn':'up'}">${dd>0?'+':''}${dd.toFixed(2)}%</b>`;
   }
   // 차트 위 최고점 가격선(주황 점선)
   try{ if(peakLine) candleSeries.removePriceLine(peakLine); }catch(e){}
