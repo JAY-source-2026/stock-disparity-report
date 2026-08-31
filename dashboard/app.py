@@ -46,6 +46,7 @@ from quant.config.universe import get_target_code
 
 _lock = threading.Lock()
 _cache = {"at": None, "state": None}
+_last_user_at = 0.0  # 마지막 사용자 접속 시각(time.time()). 워머가 '활성'일 때만 데우도록.
 # 목표주가 컨센서스는 하루 1회만 조회한다 (30초 폴링마다 네이버를 때리지 않는다).
 _consensus_cache = {"date": None, "map": {}}
 # KRX 종목목록(이름→코드 검색용). 하루 1회 캐시.
@@ -501,6 +502,9 @@ def index():
 
 @app.route("/api/state")
 def api_state():
+    global _last_user_at
+    import time
+    _last_user_at = time.time()  # 사용자 접속 기록 → 워머가 이때만 데운다
     force = request.args.get("force") in ("1", "true", "yes")
     # 재시작 직후 워밍 전(캐시 없음)엔 수십 초 블로킹 대신 '준비 중'을 즉시 반환 → 프런트가 재시도.
     if not force and _cache.get("state") is None:
@@ -830,25 +834,31 @@ def static_files(filename: str):
 
 
 # --------------------------------------------------------------------------- #
-# 백그라운드 워머 — 상태 캐시를 미리·주기적으로 데워 '첫 화면 로딩 지연'을 없앤다.
-# 장중 60초 / 장외 600초마다 재빌드해 _cache 를 항상 신선하게 유지 → 사용자의
-# /api/state(비강제)는 항상 준비된 캐시를 즉시 받는다. (get_state 참고)
+# 백그라운드 워머 — 상태 캐시를 미리 데워 '첫 화면 로딩 지연'을 없앤다.
+# 단, '최근 사용자 접속이 있을 때만'(활성) 데운다 → 아무도 안 볼 땐 API 호출 없음.
+# 활성: 장중 60초 / 장외 300초 재빌드. 재시작 직후 1회는 무조건 데워 첫 접속을 빠르게.
 # --------------------------------------------------------------------------- #
 _warm_thread = None
+_WARM_ACTIVE_WINDOW = 900  # 최근 15분 내 접속이 있으면 '활성'으로 간주
 
 
 def _warm_loop():
     import time
+    try:
+        get_state(force=True)  # 재시작 직후 1회 워밍(사용자 유무 무관)
+    except Exception:
+        pass
     while True:
         try:
-            get_state(force=True)
+            active = (time.time() - _last_user_at) < _WARM_ACTIVE_WINDOW
+            if active:
+                get_state(force=True)  # 사용 중일 때만 신선하게 유지
+                mkt = _is_market_hours(datetime.datetime.now())
+                time.sleep(60 if mkt else 300)
+            else:
+                time.sleep(45)  # 유휴: API 호출 없이 접속 여부만 확인
         except Exception:
-            pass
-        try:
-            mkt = _is_market_hours(datetime.datetime.now())
-        except Exception:
-            mkt = False
-        time.sleep(60 if mkt else 600)
+            time.sleep(60)
 
 
 def _start_warmer():
