@@ -431,12 +431,9 @@ def _price_basis(now: datetime.datetime) -> dict:
 def get_state(force: bool = False) -> dict:
     now = datetime.datetime.now()
     with _lock:
-        cached_at = _cache["at"]
-        if (
-            not force
-            and cached_at is not None
-            and (now - cached_at).total_seconds() < _ttl_seconds(now)
-        ):
+        # 비강제 요청은 준비된 캐시를 '즉시' 반환한다(신선도는 백그라운드 워머가 유지).
+        # 덕분에 첫 화면 로딩이 8초 재빌드를 기다리지 않고 바로 뜬다. force=1(새로고침 버튼)만 인라인 재빌드.
+        if not force and _cache.get("state") is not None:
             return _cache["state"]
 
     if TossProvider is None:
@@ -826,6 +823,39 @@ def api_card(code: str):
 @app.route("/static/<path:filename>")
 def static_files(filename: str):
     return send_from_directory(f"{_HERE}/static", filename)
+
+
+# --------------------------------------------------------------------------- #
+# 백그라운드 워머 — 상태 캐시를 미리·주기적으로 데워 '첫 화면 로딩 지연'을 없앤다.
+# 장중 60초 / 장외 600초마다 재빌드해 _cache 를 항상 신선하게 유지 → 사용자의
+# /api/state(비강제)는 항상 준비된 캐시를 즉시 받는다. (get_state 참고)
+# --------------------------------------------------------------------------- #
+_warm_thread = None
+
+
+def _warm_loop():
+    import time
+    while True:
+        try:
+            get_state(force=True)
+        except Exception:
+            pass
+        try:
+            mkt = _is_market_hours(datetime.datetime.now())
+        except Exception:
+            mkt = False
+        time.sleep(60 if mkt else 600)
+
+
+def _start_warmer():
+    global _warm_thread
+    if _warm_thread is not None:
+        return
+    _warm_thread = threading.Thread(target=_warm_loop, name="state-warmer", daemon=True)
+    _warm_thread.start()
+
+
+_start_warmer()  # 모듈 임포트(gunicorn 워커 기동) 시 1회 시작
 
 
 if __name__ == "__main__":
