@@ -502,6 +502,10 @@ def index():
 @app.route("/api/state")
 def api_state():
     force = request.args.get("force") in ("1", "true", "yes")
+    # 재시작 직후 워밍 전(캐시 없음)엔 수십 초 블로킹 대신 '준비 중'을 즉시 반환 → 프런트가 재시도.
+    if not force and _cache.get("state") is None:
+        _start_warmer()  # 혹시 워머가 안 떠 있으면 기동
+        return jsonify({"warming": True}), 200
     return jsonify(get_state(force=force))
 
 

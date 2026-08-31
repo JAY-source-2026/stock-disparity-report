@@ -1216,6 +1216,11 @@ async function refresh(force){
     const res=await fetch("/api/state?_="+Date.now()+(force?"&force=1":""), {cache:"no-store"});
     const s=await res.json();
     if(myId!==refreshId) return;  // 더 최신 갱신/드래그가 있었으면 늦게 온 이 결과는 버림
+    if(s.warming){  // 서버 재시작 직후 캐시 준비 전 — 빈 화면 대신 안내 후 자동 재시도
+      document.getElementById("clock").textContent="데이터 준비 중… 잠시만요";
+      setTimeout(refresh, 2500);
+      return;
+    }
     const stamp=fmtAsOf(s.generated_at);
     document.getElementById("clock").textContent="갱신 "+ (s.generated_at||"").replace("T"," ");
     document.getElementById("src").textContent="· "+(s.notice||"");
