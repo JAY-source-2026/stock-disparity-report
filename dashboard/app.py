@@ -801,10 +801,21 @@ def _get_financials(code, today):
 @app.route("/api/card/<code>")
 def api_card(code: str):
     today = datetime.datetime.now().date()
-    # 1) 직접 작성한 완전판 카드 우선, 없으면 네이버 자동 생성(국내종목)
-    card = service.load_card(code) or _get_auto_card(code, today)
-    if card is None:
+    # 1) 수기 완전판 + 자동(네이버 실데이터)을 합친다: 정성 섹션(사업·전방·경쟁·리스크)은
+    #    수기로 덮고, 숫자 섹션(실적·밸류·수급)은 자동의 실시간 값을 유지.
+    manual = service.load_card(code)
+    auto = _get_auto_card(code, today)
+    if manual is None and auto is None:
         return jsonify({"error": "not_found", "code": code}), 404
+    if manual is None:
+        card = auto
+    elif auto is None:
+        card = manual
+    else:
+        sections = dict(auto.get("sections") or {})
+        sections.update({k: v for k, v in (manual.get("sections") or {}).items() if v})
+        card = {**auto, **{k: v for k, v in manual.items() if k != "sections"}, "sections": sections}
+        card["auto"] = False
     # 2) 연도별 재무·밸류(기업실적분석)를 어떤 카드든 붙여준다
     fin = _get_financials(code, today)
     if fin:
