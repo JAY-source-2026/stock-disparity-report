@@ -995,18 +995,6 @@ function resample(daily, tf){
   });
 }
 
-// 일봉 기준 이동평균선(MA10/20/60/120일)을 날짜→값 맵으로 미리 계산
-function dailyMovingAverages(){
-  const closes=rawCandles.map(c=>c.close);
-  const maps={};
-  MA_DEFS.forEach(m=>{
-    const arr=sma(closes, m.p), mp={};
-    rawCandles.forEach((c,i)=>{ if(arr[i]!=null) mp[c.time]=arr[i]; });
-    maps[m.p]=mp;
-  });
-  return maps;
-}
-
 function sma(vals, period){
   const out=[]; let sum=0;
   for(let i=0;i<vals.length;i++){
@@ -1027,13 +1015,13 @@ function setTf(tf){
     color: c.close>=c.open ? "rgba(240,68,82,.55)" : "rgba(52,133,250,.55)" })));
   closeMap={}; volMap={};
   data.forEach(c=>{ closeMap[c.time]=c.close; volMap[c.time]=c.close*(c.volume||0); });
-  // MA는 '일봉 기준'으로 계산한 값을 현재 간격 막대의 (실제 거래일) 날짜에 매핑 →
-  // 주/월/년에서도 잘리지 않고 연속으로 표시된다.
-  const dayMA=dailyMovingAverages();
+  // MA는 '현재 간격(일/주/월/년) 막대' 종가로 계산 → 월봉 화면이면 MA10 = 10개월 이평
+  // (보유 표의 '월봉10선'과 동일 기준). 일봉이면 10일 이평.
+  const maCloses=data.map(c=>c.close);
   let legend="";
   MA_DEFS.forEach(m=>{
-    const mp=dayMA[m.p], pts=[];
-    data.forEach(bar=>{ const v=mp[bar.time]; if(v!=null) pts.push({time:bar.time, value:v}); });
+    const arr=sma(maCloses, m.p), pts=[];
+    data.forEach((bar,i)=>{ if(arr[i]!=null) pts.push({time:bar.time, value:arr[i]}); });
     maSeries[m.p].setData(pts);
     legend+=`<span style="color:${m.c}">MA${m.p}</span>`;
   });
