@@ -293,7 +293,6 @@
     <div class="hdr-right">
       <button id="refreshBtn" class="rbtn" onclick="manualRefresh()">↻ 현재가 새로고침</button>
       <span id="priceBasis" class="pbasis"></span>
-      <span id="asOf" class="asof"></span>
       <div class="clock" id="clock">—</div>
     </div>
   </header>
@@ -1210,10 +1209,8 @@ async function refresh(force){
       setTimeout(refresh, 2500);
       return;
     }
-    const stamp=fmtAsOf(s.generated_at);
     document.getElementById("clock").textContent="갱신 "+ (s.generated_at||"").replace("T"," ");
     document.getElementById("src").textContent="· "+(s.notice||"");
-    document.getElementById("asOf").textContent="현재가 "+stamp;
     const pb=s.price_basis||{}, pbEl=document.getElementById("priceBasis");
     if(pbEl){ pbEl.textContent=pb.label||""; pbEl.className="pbasis pb-"+(pb.kind||"closed");
       pbEl.title="현재가 = "+(pb.label||"")+" · 등락률 = 전일 정규장 종가 대비"; }
