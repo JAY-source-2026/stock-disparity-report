@@ -627,7 +627,24 @@ def api_holdings_arrange():
     watch = [str(c) for c in (body.get("watch") or [])]
     owned = [str(c) for c in (body.get("owned") or [])]
     store.arrange(watch, owned)
-    _invalidate_caches()
+    # 캐시의 순서·관심/보유 플래그도 즉시 반영(전체 재빌드 없이) → 새로고침/재접속 시 일관 유지.
+    with _lock:
+        st = _cache.get("state")
+        if st and st.get("holdings"):
+            by = {str(r.get("code")): r for r in st["holdings"]}
+            neworder, used = [], set()
+            for c in watch:
+                r = by.get(c)
+                if r is not None:
+                    r["owned"] = False; neworder.append(r); used.add(c)
+            for c in owned:
+                r = by.get(c)
+                if r is not None:
+                    r["owned"] = True; neworder.append(r); used.add(c)
+            for r in st["holdings"]:
+                if str(r.get("code")) not in used:
+                    neworder.append(r)
+            st["holdings"] = neworder
     return jsonify({"ok": True})
 
 
@@ -658,7 +675,12 @@ def api_holdings_remove():
     if not code:
         return jsonify({"error": "code required"}), 400
     removed = store.remove_position(code)
-    _invalidate_caches()
+    # 캐시에서도 해당 종목을 즉시 제거(전체 재빌드 없이). get_state는 비강제 시 캐시를
+    # 그대로 주므로, 여기서 안 지우면 삭제해도 화면 목록에 남는다.
+    with _lock:
+        st = _cache.get("state")
+        if st and st.get("holdings"):
+            st["holdings"] = [r for r in st["holdings"] if str(r.get("code")) != code]
     return jsonify({"removed": removed, "code": code})
 
 

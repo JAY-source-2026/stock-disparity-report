@@ -1167,12 +1167,13 @@ async function addStock(code, name, market, currency){
 }
 
 async function removeStock(code, name){
-  if(!confirm(`'${name}'(${code})을(를) 보유 목록에서 삭제할까요?`)) return;
+  if(!confirm(`'${name}'(${code})을(를) 목록에서 삭제할까요?`)) return;
   try{
     await fetch("/api/holdings/remove", {method:"POST",
       headers:{"Content-Type":"application/json"}, body:JSON.stringify({code})});
-  }catch(e){ alert("삭제 실패: "+e); }
-  refresh();
+  }catch(e){ alert("삭제 실패: "+e); return; }
+  LAST_HOLDINGS = LAST_HOLDINGS.filter(r=>String(r.code)!==String(code));  // 로컬에서 즉시 제거
+  renderHoldings(LAST_HOLDINGS);
 }
 
 // 바깥 클릭 시 검색 드롭다운 닫기
