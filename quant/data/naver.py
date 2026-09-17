@@ -134,32 +134,39 @@ def get_ohlcv_naver(symbol: str, start: str, end: str, session=None) -> list:
     return out
 
 
-def get_index_quote(code: str, session=None):
-    """네이버 지수 페이지(EUC-KR)에서 현재값·등락률. 선물(code=FUT) 등 FDR 미제공 지수용.
+NAVER_MOBILE_INDEX_URL = "https://m.stock.naver.com/api/index/{code}/basic"
 
+
+def get_index_quote(code: str, session=None):
+    """네이버 모바일 지수/선물 API에서 현재값·등락률. 선물(code=FUT) 등 FDR 미제공 지수용.
+
+    (구 데스크톱 sise_index 페이지는 2026년 네이버 개편으로 값이 사라져 모바일 API로 전환.)
     반환: {"value": float, "change_pct": float|None} 또는 None
     """
     resp = request_with_retry(
-        "GET", NAVER_INDEX_URL, headers=HEADERS, params={"code": code}, session=session
+        "GET", NAVER_MOBILE_INDEX_URL.format(code=code),
+        headers=_MOBILE_HEADERS, session=session,
     )
     if getattr(resp, "status_code", 200) != 200:
         return None
-    resp.encoding = "euc-kr"
-    html = resp.text
-    mv = _NOW_VALUE_RE.search(html)
-    if not mv:
+    try:
+        j = resp.json()
+    except Exception:
         return None
-    value = float(mv.group(1).replace(",", ""))
-    seg = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html[max(0, html.find("now_value") - 80): html.find("now_value") + 400]))
+    cp = j.get("closePrice")
+    if cp is None:
+        return None
+    try:
+        value = float(str(cp).replace(",", ""))
+    except (TypeError, ValueError):
+        return None
     change_pct = None
-    mc = _CHANGE_RE.search(seg)
-    if mc:
-        cv = float(mc.group(2).replace(",", ""))
-        if mc.group(1) == "▼":
-            cv = -cv
-        prev = value - cv
-        if prev:
-            change_pct = cv / prev * 100.0
+    fr = j.get("fluctuationsRatio")
+    if fr not in (None, ""):
+        try:
+            change_pct = float(str(fr).replace(",", ""))
+        except (TypeError, ValueError):
+            change_pct = None
     return {"value": value, "change_pct": change_pct}
 
 
