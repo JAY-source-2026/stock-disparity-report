@@ -93,33 +93,52 @@ def _get_top_marcap(today, n: int = 100) -> dict:
     now = datetime.datetime.now()
     rows = _top_cache["rows"]
 
-    def _build(sub):
-        sub = sub.sort_values("Marcap", ascending=False).head(n)
-        out = []
-        for i, (_, r) in enumerate(sub.iterrows()):
-            out.append({
-                "rank": i + 1,
-                "code": str(r.get("Code", "")),
-                "name": str(r.get("Name", "")),
-                "marcap": float(r.get("Marcap") or 0),
-                "close": float(r.get("Close") or 0),
-                "change": float(r.get("ChagesRatio") or 0),  # FDR 컬럼명 오타 그대로
-            })
-        return out
-
-    # 국내(KRX): 장중 3분 / 그 외 30분 TTL, 백오프 존중
+    # 국내(KRX): 장중 3분 / 그 외 30분 TTL, 백오프 존중.
+    # 시총·종가는 pykrx로 조회한다(FDR StockListing이 2026년 개편으로 KRX 시총/시세를
+    # 더는 주지 않음 — 종가 '-', Marcap NaN). 종목명만 FDR에서 보완(이름은 정상 제공).
     kr_at = _top_cache["kr_at"]
     kr_ttl = 180 if _is_market_hours(now) else 1800
     kr_stale = kr_at is None or (now - kr_at).total_seconds() > kr_ttl
     if kr_stale and time.time() >= _top_fail_until:
         try:
             import FinanceDataReader as fdr
+            from pykrx import stock as _pykrx
+            from quant.data.krx import get_prev_regclose_map
 
-            df = fdr.StockListing("KRX").dropna(subset=["Marcap"])
-            market = df["Market"].astype(str)
-            rows["KOSPI"] = _build(df[market == "KOSPI"])
-            rows["KOSDAQ"] = _build(df[market.str.startswith("KOSDAQ")])
-            _top_cache["kr_at"] = now
+            listing = fdr.StockListing("KRX")
+            name_map = dict(zip(listing["Code"].astype(str), listing["Name"].astype(str)))
+            rmap = get_prev_regclose_map(today)  # 직전 거래일 정규장 종가(등락률 기준)
+            # 조회 거래일: 오늘이 거래일이면 오늘(장중값), 아니면 직전 거래일
+            _idx = _pykrx.get_index_ohlcv(
+                (now.date() - datetime.timedelta(days=10)).strftime("%Y%m%d"),
+                now.strftime("%Y%m%d"), "1001")
+            _days = [d.date() for d in _idx.index]
+            qdate = (_days[-1] if _days else now.date()).strftime("%Y%m%d")
+
+            def _build_krx(market):
+                cap = _pykrx.get_market_cap_by_ticker(qdate, market=market)
+                if cap is None or cap.empty:
+                    return []
+                cap = cap.sort_values("시가총액", ascending=False).head(n)
+                out = []
+                for i, (code, r) in enumerate(cap.iterrows()):
+                    code = str(code)
+                    close = float(r.get("종가") or 0)
+                    rc = rmap.get(code)
+                    chg = (close / rc - 1) * 100.0 if (rc and rc > 0 and close) else 0.0
+                    out.append({
+                        "rank": i + 1, "code": code, "name": name_map.get(code, code),
+                        "marcap": float(r.get("시가총액") or 0), "close": close, "change": chg,
+                    })
+                return out
+
+            k, q = _build_krx("KOSPI"), _build_krx("KOSDAQ")
+            if k:
+                rows["KOSPI"] = k
+            if q:
+                rows["KOSDAQ"] = q
+            if k or q:
+                _top_cache["kr_at"] = now
         except Exception:
             _top_fail_until = time.time() + 900  # 15분 백오프
 
