@@ -70,6 +70,19 @@ def _get_listing(today) -> list:
                     "currency": "KRW",
                 }
             )
+        # ETF도 검색 대상에 포함 (ETF/KR 목록은 Symbol 컬럼 사용)
+        try:
+            etf = fdr.StockListing("ETF/KR")
+            seen = {x["code"] for x in rows}
+            for _, r in etf.iterrows():
+                code = str(r.get("Symbol") or r.get("Code") or "")
+                if not code or code in seen:
+                    continue
+                rows.append({"code": code, "name": str(r.get("Name", "")),
+                             "market": "ETF", "currency": "KRW"})
+                seen.add(code)
+        except Exception:
+            pass  # ETF 목록 실패해도 주식 검색은 유지
     except Exception:
         rows = _listing_cache["rows"]  # 실패 시 이전 캐시 유지
     if rows:
