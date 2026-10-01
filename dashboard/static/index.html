@@ -91,6 +91,23 @@
   }
   .secchip:hover{border-color:#4c8dff; color:#4c8dff;}
   .secchip.empty{opacity:.5; font-weight:500;}
+  /* 관심종목 탭 */
+  .watchtabs{display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 10px;}
+  .wtab{display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:8px;
+    border:1px solid var(--line); background:var(--card2); color:var(--sub);
+    font-size:12.5px; font-weight:600; cursor:pointer; user-select:none;}
+  .wtab:hover{border-color:#3a3a44;}
+  .wtab.active{background:#1f2937; border-color:#4c8dff; color:#fff;}
+  .wtab.wtover{border-color:#4c8dff; background:#223049;}  /* 드래그 올려놓을 때 */
+  .wtab .wtcount{font-size:11px; font-weight:600; color:var(--sub); background:var(--bg);
+    border-radius:6px; padding:0 5px; min-width:16px; text-align:center;}
+  .wtab.active .wtcount{color:#cdd6e0;}
+  .wtab .wtdel{font-size:13px; color:var(--sub); opacity:0; margin-left:1px; line-height:1;}
+  .wtab:hover .wtdel{opacity:.7;}
+  .wtab .wtdel:hover{opacity:1; color:#F04452;}
+  .wtadd{padding:5px 10px; border-radius:8px; border:1px dashed var(--line);
+    background:transparent; color:var(--sub); font-size:13px; cursor:pointer;}
+  .wtadd:hover{border-color:#4c8dff; color:#4c8dff;}
   .name{font-weight:600;} .code{color:var(--sub); font-size:11px; margin-left:6px;}
   .comment{color:var(--sub); font-size:12px; text-align:center; max-width:280px; white-space:normal;}
   /* 판단 문구 컬러 (이격도 배지 색상과 동일 체계) */
@@ -330,8 +347,9 @@
   <div>
     <!-- 보유 종목 테이블 (17-1) — 전체 폭 -->
     <div class="card">
-      <h2>관심 종목 <span class="hint">드래그로 순서변경 / 보유 종목으로 이동 · 클릭 시 차트 · 종목명 옆 섹터칩 클릭해 분류</span>
+      <h2>관심 종목 <span class="hint">탭으로 드래그해 이동 / 순서변경 · 클릭 시 차트 · 섹터칩 클릭해 분류</span>
         <label class="secgrp"><input type="checkbox" id="secGroupChk" checked> 섹터별 그룹</label></h2>
+      <div class="watchtabs" id="watchTabs"></div>
       <div class="addbar">
         <input id="stockSearch" type="text" autocomplete="off"
                placeholder="종목명으로 검색해서 추가 (예: 삼성전자)">
@@ -564,7 +582,88 @@ function emptyRow(msg){ return `<tr class="emptyrow"><td colspan="11" class="sub
 
 // ===== 섹터(분류) =====
 let LAST_HOLDINGS=[], ALL_SECTORS=[];
+let WATCH_TABS=["관심종목1"], ACTIVE_TAB=null, _tabMoved=false;  // 관심종목 탭
 function escAttr(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+function activeTab(){
+  if(ACTIVE_TAB && WATCH_TABS.includes(ACTIVE_TAB)) return ACTIVE_TAB;
+  try{ const s=localStorage.getItem("activeTab"); if(s && WATCH_TABS.includes(s)){ ACTIVE_TAB=s; return s; } }catch(e){}
+  ACTIVE_TAB = WATCH_TABS[0] || "관심종목1"; return ACTIVE_TAB;
+}
+function setActiveTab(t){ ACTIVE_TAB=t; try{localStorage.setItem("activeTab",t);}catch(e){} renderHoldings(LAST_HOLDINGS); }
+
+// 관심종목 탭 바 렌더 (탭별 종목수 · 활성표시 · 드롭대상 · 추가/이름변경/삭제)
+function renderWatchTabs(watchRows){
+  const bar=document.getElementById("watchTabs"); if(!bar) return;
+  const counts={}; (watchRows||[]).forEach(r=>{ const t=r.tab||"관심종목1"; counts[t]=(counts[t]||0)+1; });
+  const act=activeTab();
+  bar.innerHTML = WATCH_TABS.map(t=>
+    `<button class="wtab${t===act?' active':''}" data-tab="${escAttr(t)}" title="클릭 전환 · 더블클릭 이름변경">`
+    + `<span class="wtname">${escAttr(t)}</span><span class="wtcount">${counts[t]||0}</span>`
+    + `<span class="wtdel" title="탭 삭제">×</span></button>`).join("")
+    + `<button class="wtadd" id="wtAddBtn" title="탭 추가">＋</button>`;
+  bar.querySelectorAll(".wtab").forEach(b=>{
+    const t=b.dataset.tab;
+    b.addEventListener("click", e=>{ if(e.target.classList.contains("wtdel")) return; setActiveTab(t); });
+    b.addEventListener("dblclick", ()=>renameTab(t));
+    b.querySelector(".wtdel").addEventListener("click", e=>{ e.stopPropagation(); deleteTab(t); });
+    b.addEventListener("dragover", e=>{ e.preventDefault(); b.classList.add("wtover"); });
+    b.addEventListener("dragleave", ()=>b.classList.remove("wtover"));
+    b.addEventListener("drop", e=>{ e.preventDefault(); b.classList.remove("wtover"); onTabDrop(t, e); });
+  });
+  const add=bar.querySelector("#wtAddBtn"); if(add) add.addEventListener("click", addTab);
+}
+
+// 종목을 다른 탭으로 드롭해 이동
+async function onTabDrop(tab, e){
+  let code=""; try{ code=e.dataTransfer.getData("text/plain"); }catch(_){}
+  if(!code){ const d=document.querySelector("tr.dragging"); if(d) code=d.dataset.code; }
+  if(!code) return;
+  const row=LAST_HOLDINGS.find(r=>String(r.code)===String(code));
+  if(!row || row.owned) return;                       // 보유종목은 탭 이동 대상 아님
+  if((row.tab||"관심종목1")===tab) return;              // 이미 그 탭
+  _tabMoved=true;                                      // onDragEnd가 재정렬 건너뛰게
+  try{ await fetch("/api/holdings/tab",{method:"POST",headers:{"Content-Type":"application/json"},
+       body:JSON.stringify({code, tab})}); }catch(err){}
+  row.tab=tab;
+  renderHoldings(LAST_HOLDINGS);
+}
+
+async function addTab(){
+  try{
+    const r=await (await fetch("/api/holdings/tabs",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({op:"add"})})).json();
+    if(r.tabs){ WATCH_TABS=r.tabs; setActiveTab(WATCH_TABS[WATCH_TABS.length-1]); }
+  }catch(e){ alert("탭 추가 실패: "+e); }
+}
+async function renameTab(t){
+  const nn=prompt("탭 이름 변경", t); if(nn===null) return;
+  const name=nn.trim(); if(!name || name===t) return;
+  try{
+    const r=await (await fetch("/api/holdings/tabs",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({op:"rename", name:t, new_name:name})})).json();
+    if(r.tabs){ WATCH_TABS=r.tabs;
+      LAST_HOLDINGS.forEach(row=>{ if((row.tab||"관심종목1")===t) row.tab=name; });
+      if(ACTIVE_TAB===t) ACTIVE_TAB=name;
+      try{localStorage.setItem("activeTab",ACTIVE_TAB);}catch(e){}
+      renderHoldings(LAST_HOLDINGS);
+    }
+  }catch(e){ alert("이름 변경 실패: "+e); }
+}
+async function deleteTab(t){
+  if(WATCH_TABS.length<=1){ alert("마지막 탭은 삭제할 수 없어요."); return; }
+  const fb=WATCH_TABS.find(x=>x!==t);
+  if(!confirm(`'${t}' 탭을 삭제할까요?\n이 탭의 종목은 '${fb}' 탭으로 옮겨집니다.`)) return;
+  try{
+    const r=await (await fetch("/api/holdings/tabs",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({op:"delete", name:t})})).json();
+    if(r.tabs){ const nfb=r.tabs[0];
+      LAST_HOLDINGS.forEach(row=>{ if((row.tab||"관심종목1")===t) row.tab=nfb; });
+      WATCH_TABS=r.tabs; if(ACTIVE_TAB===t) ACTIVE_TAB=nfb;
+      try{localStorage.setItem("activeTab",ACTIVE_TAB);}catch(e){}
+      renderHoldings(LAST_HOLDINGS);
+    }
+  }catch(e){ alert("삭제 실패: "+e); }
+}
 function secGroupOn(){ const c=document.getElementById("secGroupChk"); return c ? c.checked : true; }
 // 관심종목(watch)에만 섹터칩 표시 — 클릭해서 섹터 지정/변경
 function secChip(r){
@@ -588,7 +687,10 @@ function renderHoldings(rows){
   LAST_HOLDINGS=rows;
   const watch=rows.filter(r=>!r.owned), owned=rows.filter(r=>r.owned);
   ALL_SECTORS=[...new Set(watch.map(r=>r.sector).filter(Boolean))];
-  document.getElementById("holdings").innerHTML = groupBySector(watch) || emptyRow("관심 종목 없음 — 위 검색창에서 추가하세요");
+  renderWatchTabs(watch);                       // 탭 바(종목수·활성)
+  const act=activeTab();
+  const tabWatch=watch.filter(r=>(r.tab||"관심종목1")===act);  // 현재 탭 종목만
+  document.getElementById("holdings").innerHTML = groupBySector(tabWatch) || emptyRow("이 탭에 종목이 없어요 — 위 검색창에서 추가하거나 다른 탭의 종목을 이 탭으로 드래그하세요");
   document.getElementById("owned").innerHTML = owned.map(rowHtml).join("") || emptyRow("보유 종목 없음 — 관심 종목에서 드래그해 옮기세요");
   attachRowHandlers();
   attachSectorHandlers();
@@ -641,6 +743,7 @@ async function onDragEnd(e){
   el.classList.remove("dragging");
   lastDragAt=Date.now();  // 드래그 직후 폴링 쿨다운 기준
   setTimeout(()=>{ draggingNow=false; }, 60);
+  if(_tabMoved){ _tabMoved=false; return; }  // 탭으로 이동한 경우(재정렬·섹터 처리 건너뜀)
   const sectorChanged = await assignSectorByDrop(el);  // 섹터 그룹에 놓으면 자동 편입(로컬 데이터도 갱신)
   await persistArrange();                                // 순서 저장(섹터 필드는 보존됨)
   syncHoldingsFromDOM();   // ★항상 LAST_HOLDINGS를 현재 화면(관심/보유·순서)과 동기화 →
@@ -1157,7 +1260,7 @@ async function addStock(code, name, market, currency){
   try{
     const res=await fetch("/api/holdings/add", {method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({code, name, market, currency})});
+      body:JSON.stringify({code, name, market, currency, tab: activeTab()})});
     const r=await res.json();
     if(r.added===false){ alert(`'${name}'은(는) 이미 목록에 있습니다.`); return; }
     if(r.row){ LAST_HOLDINGS.push(r.row); renderHoldings(LAST_HOLDINGS); }  // 새 행만 로컬 추가(전체 재조회 없음)
@@ -1214,6 +1317,7 @@ async function refresh(force){
     const pb=s.price_basis||{}, pbEl=document.getElementById("priceBasis");
     if(pbEl){ pbEl.textContent=pb.label||""; pbEl.className="pbasis pb-"+(pb.kind||"closed");
       pbEl.title="현재가 = "+(pb.label||"")+" · 등락률 = 전일 정규장 종가 대비"; }
+    WATCH_TABS = (s.watch_tabs && s.watch_tabs.length) ? s.watch_tabs : ["관심종목1"];
     renderRisk(s.risk_alerts);
     renderMacro(s.macro||[], s.us_index||[]);
     renderTopMarcap(s.top_marcap||{});

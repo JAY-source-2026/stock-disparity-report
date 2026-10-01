@@ -175,6 +175,8 @@ def build_position_row(
         "target_weight": position.get("target_weight"),
         "owned": bool(position.get("owned", False)),
         "sector": position.get("sector") or "",  # 사용자 지정 섹터(관심종목 분류용)
+        "tab": position.get("tab") or "관심종목1",  # 소속 관심종목 탭
+
         "current_price": None,
         "change_pct": None,
         "ma20": None,

@@ -40,14 +40,19 @@ def _atomic_write(path: str, data: dict) -> None:
         raise
 
 
+DEFAULT_WATCH_TAB = "관심종목1"
+
+
 def add_position(
     code: str,
     name: str,
     market: str = "KRX",
     currency: str = "KRW",
     path: str = HOLDINGS_PATH,
+    tab: str = DEFAULT_WATCH_TAB,
 ) -> bool:
-    """보유 목록에 종목 추가. 이미 있으면 False, 추가하면 True."""
+    """보유 목록에 종목 추가. 이미 있으면 False, 추가하면 True. tab=소속 관심종목 탭."""
+    tab = tab or DEFAULT_WATCH_TAB
     with _lock:
         data = load_holdings(path)
         positions = data.setdefault("positions", [])
@@ -56,6 +61,7 @@ def add_position(
             # 이미 있는데 비활성이면 다시 활성화(예: 초기 비활성 TSLA), 아니면 무시
             if not existing.get("active", True):
                 existing["active"] = True
+                existing.setdefault("tab", tab)
                 _atomic_write(path, data)
                 return True
             return False
@@ -72,8 +78,13 @@ def add_position(
                 "active": True,
                 "owned": False,  # 검색 추가는 항상 관심 종목으로
                 "sector": "",     # 사용자 지정 섹터(관심종목 분류용)
+                "tab": tab,       # 소속 관심종목 탭
             }
         )
+        tabs = list(data.get("watch_tabs") or [])
+        if tab not in tabs:
+            tabs.append(tab)
+            data["watch_tabs"] = tabs
         _atomic_write(path, data)
         return True
 
@@ -88,6 +99,95 @@ def set_sector(code: str, sector: str, path: str = HOLDINGS_PATH) -> bool:
                 _atomic_write(path, data)
                 return True
     return False
+
+
+# --------------------------------------------------------------------------- #
+# 관심종목 탭 (관심종목1·2·… 으로 묶어 관리)
+# --------------------------------------------------------------------------- #
+def _dedupe(seq):
+    out = []
+    for x in seq:
+        if x and x not in out:
+            out.append(x)
+    return out
+
+
+def _watch_tabs(data) -> list:
+    """저장된 탭 순서 + 실제 포지션에 쓰인 탭 보강. 비면 기본 탭."""
+    tabs = list(data.get("watch_tabs") or [])
+    for p in data.get("positions", []):
+        if not p.get("owned", False) and p.get("active", True):
+            t = p.get("tab") or DEFAULT_WATCH_TAB
+            if t not in tabs:
+                tabs.append(t)
+    tabs = _dedupe(tabs)
+    return tabs or [DEFAULT_WATCH_TAB]
+
+
+def get_watch_tabs(path: str = HOLDINGS_PATH) -> list:
+    """관심종목 탭 목록(순서)."""
+    with _lock:
+        return _watch_tabs(load_holdings(path))
+
+
+def set_tab(code: str, tab: str, path: str = HOLDINGS_PATH) -> bool:
+    """종목을 특정 관심종목 탭으로 이동. 탭이 목록에 없으면 추가. 종목 없으면 False."""
+    tab = tab or DEFAULT_WATCH_TAB
+    with _lock:
+        data = load_holdings(path)
+        found = False
+        for p in data.get("positions", []):
+            if str(p.get("code")) == str(code):
+                p["tab"] = tab
+                found = True
+                break
+        if not found:
+            return False
+        tabs = _watch_tabs(data)
+        if tab not in tabs:
+            tabs.append(tab)
+        data["watch_tabs"] = _dedupe(tabs)
+        _atomic_write(path, data)
+        return True
+
+
+def _next_tab_name(tabs) -> str:
+    i = 1
+    while f"관심종목{i}" in tabs:
+        i += 1
+    return f"관심종목{i}"
+
+
+def manage_tabs(op: str, name: str = "", new_name: str = "",
+                order=None, path: str = HOLDINGS_PATH) -> dict:
+    """관심종목 탭 관리. op: add|rename|delete|reorder. 반환 {ok, tabs}."""
+    with _lock:
+        data = load_holdings(path)
+        tabs = _watch_tabs(data)
+        if op == "add":
+            nm = (name or "").strip() or _next_tab_name(tabs)
+            if nm not in tabs:
+                tabs.append(nm)
+        elif op == "rename" and name and new_name and new_name.strip():
+            new_name = new_name.strip()
+            if name in tabs and new_name not in tabs:
+                tabs = [new_name if t == name else t for t in tabs]
+                for p in data.get("positions", []):
+                    if (p.get("tab") or DEFAULT_WATCH_TAB) == name:
+                        p["tab"] = new_name
+        elif op == "delete" and name:
+            if name in tabs and len(tabs) > 1:
+                tabs = [t for t in tabs if t != name]
+                fallback = tabs[0]
+                for p in data.get("positions", []):
+                    if (p.get("tab") or DEFAULT_WATCH_TAB) == name:
+                        p["tab"] = fallback
+        elif op == "reorder" and order:
+            order = [t for t in order if t in tabs]
+            tabs = order + [t for t in tabs if t not in order]
+        data["watch_tabs"] = _dedupe(tabs) or [DEFAULT_WATCH_TAB]
+        _atomic_write(path, data)
+        return {"ok": True, "tabs": data["watch_tabs"]}
 
 
 def arrange(watch_codes, owned_codes, path: str = HOLDINGS_PATH) -> bool:

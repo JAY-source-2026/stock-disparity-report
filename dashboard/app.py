@@ -499,6 +499,7 @@ def get_state(force: bool = False) -> dict:
             row["change_pct"] = (cp / rc - 1) * 100.0
 
     state["price_basis"] = _price_basis(now)  # 현재가가 어느 장 기준인지
+    state["watch_tabs"] = store.get_watch_tabs()  # 관심종목 탭 목록(순서)
 
     with _lock:
         _cache["at"] = now
@@ -619,7 +620,8 @@ def api_holdings_add():
             currency = currency or match.get("currency", "KRW")
     market = market or "KRX"
     currency = currency or "KRW"
-    added = store.add_position(code, name or code, market=market, currency=currency)
+    tab = str(body.get("tab", "")).strip() or "관심종목1"  # 추가될 관심종목 탭
+    added = store.add_position(code, name or code, market=market, currency=currency, tab=tab)
     # 전체 재빌드(~8초) 대신 새 종목 1건만 만들어 캐시에 덧붙인다(속도).
     row = None
     if added:
@@ -685,6 +687,55 @@ def api_holdings_sector():
                     row["sector"] = sector
                     break
     return jsonify({"ok": ok, "code": code, "sector": sector})
+
+
+@app.route("/api/holdings/tab", methods=["POST"])
+def api_holdings_tab():
+    """종목을 관심종목 탭으로 이동. body: {code, tab}."""
+    body = request.get_json(force=True, silent=True) or {}
+    code = str(body.get("code", "")).strip()
+    tab = str(body.get("tab", "")).strip() or "관심종목1"
+    if not code:
+        return jsonify({"error": "code required"}), 400
+    ok = store.set_tab(code, tab)
+    with _lock:  # 캐시 즉시 반영(재빌드 없이)
+        st = _cache.get("state")
+        if st:
+            for row in st.get("holdings", []):
+                if str(row.get("code")) == code:
+                    row["tab"] = tab
+                    break
+            tabs = st.get("watch_tabs") or []
+            if tab not in tabs:
+                st["watch_tabs"] = tabs + [tab]
+    return jsonify({"ok": ok, "code": code, "tab": tab})
+
+
+@app.route("/api/holdings/tabs", methods=["POST"])
+def api_holdings_tabs():
+    """관심종목 탭 관리. body: {op: add|rename|delete|reorder, name, new_name, order}."""
+    body = request.get_json(force=True, silent=True) or {}
+    op = str(body.get("op", "")).strip()
+    name = str(body.get("name", "")).strip()
+    new_name = str(body.get("new_name", "")).strip()
+    order = body.get("order") or None
+    res = store.manage_tabs(op, name=name, new_name=new_name, order=order)
+    tabs = res.get("tabs") or []
+    # 캐시의 탭 목록 + 행들의 tab 재매핑을 즉시 반영(재빌드 없이)
+    with _lock:
+        st = _cache.get("state")
+        if st:
+            st["watch_tabs"] = tabs
+            if op == "rename" and name and new_name:
+                for row in st.get("holdings", []):
+                    if (row.get("tab") or "관심종목1") == name:
+                        row["tab"] = new_name
+            elif op == "delete" and name and tabs:
+                fb = tabs[0]
+                for row in st.get("holdings", []):
+                    if (row.get("tab") or "관심종목1") == name:
+                        row["tab"] = fb
+    return jsonify(res)
 
 
 @app.route("/api/holdings/remove", methods=["POST"])
