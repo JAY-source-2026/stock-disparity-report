@@ -49,15 +49,32 @@ def _extract_target_price(html: str) -> Optional[float]:
     return float(candidates[0].replace(",", ""))
 
 
+NAVER_MOBILE_INTEGRATION = "https://m.stock.naver.com/api/stock/{code}/integration"
+
+
 def get_target_price_from_naver(code: str, session=None) -> Optional[float]:
-    """종목코드의 목표주가 컨센서스(원). 애널리스트 커버리지가 없으면 None."""
+    """종목코드의 목표주가 컨센서스(원). 네이버 모바일 통합 API의 consensusInfo.priceTargetMean.
+
+    (구 데스크톱 item/main 페이지는 2026년 네이버 개편으로 목표주가 표가 사라져 모바일 API로 전환.)
+    애널리스트 커버리지가 없으면 None.
+    """
     resp = request_with_retry(
-        "GET", NAVER_MAIN_URL, headers=HEADERS, params={"code": code}, session=session
+        "GET", NAVER_MOBILE_INTEGRATION.format(code=code),
+        headers=_MOBILE_HEADERS, session=session,
     )
     if getattr(resp, "status_code", 200) != 200:
         return None
-    resp.encoding = "utf-8"  # 스킬 13번 핵심값
-    price = _extract_target_price(resp.text)
+    try:
+        cons = (resp.json() or {}).get("consensusInfo") or {}
+    except Exception:
+        return None
+    tp = cons.get("priceTargetMean")
+    price = None
+    if tp not in (None, "", "-"):
+        try:
+            price = float(str(tp).replace(",", ""))
+        except (TypeError, ValueError):
+            price = None
     print(f"[naver] 목표주가 컨센서스 {code}: {price}")  # 스킬 13번: 로그 문구 유지
     return price
 
