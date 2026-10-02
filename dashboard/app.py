@@ -50,41 +50,57 @@ _cache = {"at": None, "state": None}
 _consensus_cache = {"date": None, "map": {}}
 # KRX 종목목록(이름→코드 검색용). 하루 1회 캐시.
 _listing_cache = {"date": None, "rows": []}
+# KRX 주식 종목명 맵/행 (pykrx). FDR StockListing("KRX")이 2026년 개편으로 404라 pykrx로 조회.
+_krx_names_cache = {"date": None, "map": {}, "rows": []}
+
+
+def _krx_names(today) -> dict:
+    """KOSPI+KOSDAQ 주식 {code: name} 맵과 행 목록(pykrx). 하루 1회 캐시.
+
+    반환 {'map': {code:name}, 'rows': [{code,name,market,currency}]}.
+    """
+    if _krx_names_cache["date"] == today and _krx_names_cache["map"]:
+        return _krx_names_cache
+    try:
+        from pykrx import stock as _pykrx
+
+        tstr = today.strftime("%Y%m%d")
+        nmap, rows = {}, []
+        for mkt in ("KOSPI", "KOSDAQ"):
+            for c in _pykrx.get_market_ticker_list(tstr, market=mkt):
+                code = str(c)
+                try:
+                    name = _pykrx.get_market_ticker_name(c)
+                except Exception:
+                    name = code
+                nmap[code] = name
+                rows.append({"code": code, "name": name, "market": mkt, "currency": "KRW"})
+        if nmap:
+            _krx_names_cache.update({"date": today, "map": nmap, "rows": rows})
+    except Exception:
+        pass  # 실패 시 직전 캐시 유지
+    return _krx_names_cache
 
 
 def _get_listing(today) -> list:
     if _listing_cache["date"] == today and _listing_cache["rows"]:
         return _listing_cache["rows"]
-    rows = []
+    # 국내 주식(pykrx) + ETF(FDR). 미장(US) 검색은 추후.
+    rows = list(_krx_names(today).get("rows") or [])
     try:
         import FinanceDataReader as fdr
 
-        # 국내(KRX)만 검색 대상. 미장(US) 검색은 추후 별도 구현 예정이라 지금은 제외.
-        krx = fdr.StockListing("KRX")
-        for _, r in krx.iterrows():
-            rows.append(
-                {
-                    "code": str(r.get("Code", "")),
-                    "name": str(r.get("Name", "")),
-                    "market": str(r.get("Market", "")) or "KRX",
-                    "currency": "KRW",
-                }
-            )
-        # ETF도 검색 대상에 포함 (ETF/KR 목록은 Symbol 컬럼 사용)
-        try:
-            etf = fdr.StockListing("ETF/KR")
-            seen = {x["code"] for x in rows}
-            for _, r in etf.iterrows():
-                code = str(r.get("Symbol") or r.get("Code") or "")
-                if not code or code in seen:
-                    continue
-                rows.append({"code": code, "name": str(r.get("Name", "")),
-                             "market": "ETF", "currency": "KRW"})
-                seen.add(code)
-        except Exception:
-            pass  # ETF 목록 실패해도 주식 검색은 유지
+        etf = fdr.StockListing("ETF/KR")  # ETF/KR 목록은 Symbol 컬럼 사용
+        seen = {x["code"] for x in rows}
+        for _, r in etf.iterrows():
+            code = str(r.get("Symbol") or r.get("Code") or "")
+            if not code or code in seen:
+                continue
+            rows.append({"code": code, "name": str(r.get("Name", "")),
+                         "market": "ETF", "currency": "KRW"})
+            seen.add(code)
     except Exception:
-        rows = _listing_cache["rows"]  # 실패 시 이전 캐시 유지
+        pass  # ETF 목록 실패해도 주식 검색은 유지
     if rows:
         _listing_cache["date"] = today
         _listing_cache["rows"] = rows
@@ -107,19 +123,17 @@ def _get_top_marcap(today, n: int = 100) -> dict:
     rows = _top_cache["rows"]
 
     # 국내(KRX): 장중 3분 / 그 외 30분 TTL, 백오프 존중.
-    # 시총·종가는 pykrx로 조회한다(FDR StockListing이 2026년 개편으로 KRX 시총/시세를
-    # 더는 주지 않음 — 종가 '-', Marcap NaN). 종목명만 FDR에서 보완(이름은 정상 제공).
+    # 시총·종가·종목명 모두 pykrx로 조회한다(FDR StockListing("KRX")은 2026년 개편으로 404/
+    # 시총 미제공). 종목명은 _krx_names(pykrx) 맵 사용.
     kr_at = _top_cache["kr_at"]
     kr_ttl = 180 if _is_market_hours(now) else 1800
     kr_stale = kr_at is None or (now - kr_at).total_seconds() > kr_ttl
     if kr_stale and time.time() >= _top_fail_until:
         try:
-            import FinanceDataReader as fdr
             from pykrx import stock as _pykrx
             from quant.data.krx import get_prev_regclose_map
 
-            listing = fdr.StockListing("KRX")
-            name_map = dict(zip(listing["Code"].astype(str), listing["Name"].astype(str)))
+            name_map = _krx_names(today).get("map") or {}
             rmap = get_prev_regclose_map(today)  # 직전 거래일 정규장 종가(등락률 기준)
             # 조회 거래일: 오늘이 거래일이면 오늘(장중값), 아니면 직전 거래일
             _idx = _pykrx.get_index_ohlcv(
