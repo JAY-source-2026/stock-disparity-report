@@ -1,4 +1,4 @@
-"""네이버 목표주가 파서 테스트 — 실제 요청 없이 샘플 HTML + monkeypatch (스킬 9·13번)."""
+"""네이버 목표주가 파서 테스트 — 실제 요청 없이 샘플 HTML/JSON + monkeypatch (스킬 9·13번)."""
 
 from quant.data import naver
 
@@ -24,6 +24,19 @@ class FakeResp:
         self.encoding = None
 
 
+class FakeJsonResp:
+    """모바일 통합 API(m.stock.naver.com/api/stock/{code}/integration) 응답 흉내."""
+
+    def __init__(self, payload, status=200):
+        self._payload = payload
+        self.status_code = status
+
+    def json(self):
+        if isinstance(self._payload, Exception):
+            raise self._payload
+        return self._payload
+
+
 def test_extract_picks_first_candidate_not_52week():
     # candidates[0] = 493,542 (목표주가). 52주 최저(67,500)를 잡으면 안 된다.
     assert naver._extract_target_price(SAMPLE_HTML) == 493542.0
@@ -34,8 +47,34 @@ def test_extract_none_when_no_consensus():
 
 
 def test_get_target_price_from_naver(monkeypatch):
-    monkeypatch.setattr(naver, "request_with_retry", lambda *a, **k: FakeResp(SAMPLE_HTML))
+    calls = []
+
+    def fake(method, url, **kwargs):
+        calls.append((method, url))
+        return FakeJsonResp({"consensusInfo": {"priceTargetMean": "493,542"}})
+
+    monkeypatch.setattr(naver, "request_with_retry", fake)
     assert naver.get_target_price_from_naver("005930") == 493542.0
+    assert calls == [("GET", "https://m.stock.naver.com/api/stock/005930/integration")]
+
+
+def test_get_target_price_numeric_value(monkeypatch):
+    resp = FakeJsonResp({"consensusInfo": {"priceTargetMean": 493542}})
+    monkeypatch.setattr(naver, "request_with_retry", lambda *a, **k: resp)
+    assert naver.get_target_price_from_naver("005930") == 493542.0
+
+
+def test_get_target_price_no_coverage_returns_none(monkeypatch):
+    # 애널리스트 커버리지 없음: consensusInfo 자체가 없거나 값이 "-"
+    for payload in ({}, {"consensusInfo": None}, {"consensusInfo": {"priceTargetMean": "-"}}):
+        monkeypatch.setattr(naver, "request_with_retry", lambda *a, p=payload, **k: FakeJsonResp(p))
+        assert naver.get_target_price_from_naver("005930") is None
+
+
+def test_get_target_price_invalid_json_returns_none(monkeypatch):
+    resp = FakeJsonResp(ValueError("not json"))
+    monkeypatch.setattr(naver, "request_with_retry", lambda *a, **k: resp)
+    assert naver.get_target_price_from_naver("005930") is None
 
 
 def test_get_target_price_non_200_returns_none(monkeypatch):
